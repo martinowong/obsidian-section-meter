@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.2
+
+- Replaced floating selection stats with a bottom status-bar readout.
+- Added whole-note stats to the status bar.
+- Added separate status-bar display toggles for whole-note stats, selected-text stats, words, timing, and characters.
+- Kept heading badges to one section badge per visible heading.
+
 ## 0.10.1
 
 - Fixed floating selection stats so the badge anchors to the visible editor pane when the target heading is offscreen.

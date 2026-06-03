@@ -17,7 +17,11 @@ export interface SectionMeterSettings {
   labelSeparator: string;
   minimumWordCount: number;
   hideEmptySections: boolean;
-  showFloatingSelectionBadge: boolean;
+  showStatusBarNoteStats: boolean;
+  showStatusBarSelectionStats: boolean;
+  showStatusBarWords: boolean;
+  showStatusBarTiming: boolean;
+  showStatusBarCharacters: boolean;
 }
 
 export interface HeadingSection {
@@ -193,11 +197,20 @@ function countWords(readable: string): number {
 }
 
 function countCharacters(readable: string, includeSpaces: boolean): number {
-  const trimmed = readable
-    .replace(/^[^\S\r\n]+|[^\S\r\n]+$/gm, "")
-    .replace(/[\t\r\n]+/g, " ")
-    .trim();
-  const countable = includeSpaces ? trimmed : trimmed.replace(/\s/g, "");
+  const lineTrimmed = readable.replace(/^[^\S\r\n]+|[^\S\r\n]+$/gm, "");
+  const hasContent = /\S/.test(lineTrimmed);
+  const keepLeadingBreak = hasContent && /^(?:\r\n|\r|\n)/.test(lineTrimmed);
+  let normalized = lineTrimmed
+    .replace(/\t/g, " ")
+    .replace(/(?:\r\n|\r|\n)+/g, " ");
+
+  if (!keepLeadingBreak) {
+    normalized = normalized.replace(/^ +/, "");
+  }
+
+  normalized = normalized.replace(/ +$/, "");
+
+  const countable = includeSpaces ? normalized : normalized.replace(/\s/g, "");
   return Array.from(countable).length;
 }
 

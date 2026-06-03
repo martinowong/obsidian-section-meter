@@ -28,16 +28,6 @@
   opacity: 0.78;
 }
 
-.section-meter-floating-selection-badge {
-  position: fixed;
-  z-index: 100;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin: 0;
-  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
-  font-size: var(--font-ui-small);
-}
-
 .markdown-source-view.mod-cm6 .section-meter-title-badge,
 .markdown-preview-view .section-meter-title-badge,
 .section-meter-title-badge {
@@ -61,4 +51,13 @@
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
   line-height: 1.35;
+}
+
+.section-meter-status-bar-selection {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.section-meter-status-bar-selection-hidden {
+  display: none;
 }

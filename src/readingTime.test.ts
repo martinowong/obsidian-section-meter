@@ -18,7 +18,11 @@ const settings = {
   labelSeparator: ",",
   minimumWordCount: 0,
   hideEmptySections: false,
-  showFloatingSelectionBadge: true
+  showStatusBarNoteStats: true,
+  showStatusBarSelectionStats: true,
+  showStatusBarWords: true,
+  showStatusBarTiming: false,
+  showStatusBarCharacters: false
 };
 
 describe("parseHeadingSections", () => {
@@ -96,6 +100,12 @@ describe("countReadableWords", () => {
 
   it("counts punctuation and repeated spaces as visible characters", () => {
     expect(countReadableCharacters("1 h  .")).toBe(6);
+  });
+
+  it("counts a selected paragraph boundary as a visible spacing character", () => {
+    const markdown = "\nè più probabile pikachu? è più probabile geodude? oppure hanno la stessa probabilità?";
+
+    expect(countReadableCharacters(markdown)).toBe(86);
   });
 
   it("can count readable characters without spaces", () => {

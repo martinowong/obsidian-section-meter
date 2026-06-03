@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.3
+
+- Replaced the `builtin-modules` development dependency with Node's built-in module list.
+- Added a GitHub Actions release workflow that rebuilds, uploads, and attests release assets.
+
 ## 0.10.2
 
 - Replaced floating selection stats with a bottom status-bar readout.

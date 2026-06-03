@@ -17,13 +17,13 @@
   ],
   "author": "Martino Wong",
   "license": "MIT",
-  "homepage": "https://github.com/martinowong/section-meter#readme",
+  "homepage": "https://github.com/martinowong/obsidian-section-meter#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/martinowong/section-meter.git"
+    "url": "git+https://github.com/martinowong/obsidian-section-meter.git"
   },
   "bugs": {
-    "url": "https://github.com/martinowong/section-meter/issues"
+    "url": "https://github.com/martinowong/obsidian-section-meter/issues"
   },
   "devDependencies": {
     "@codemirror/state": "6.5.0",

@@ -1,0 +1,65 @@
+.section-meter-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-start: 0.5em;
+  padding: 0.05em 0.4em;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  font-size: 0.68em;
+  font-weight: 500;
+  line-height: 1.4;
+  vertical-align: middle;
+  white-space: nowrap;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.cm-content .section-meter-badge,
+.cm-content .section-meter-badge * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.cm-line .section-meter-badge {
+  opacity: 0.78;
+}
+
+.section-meter-floating-selection-badge {
+  position: absolute;
+  inset-block-start: 0.65rem;
+  inset-inline-end: 1rem;
+  z-index: 20;
+  max-width: min(24rem, calc(100% - 2rem));
+  margin: 0;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+  font-size: var(--font-ui-small);
+}
+
+.markdown-source-view.mod-cm6 .section-meter-title-badge,
+.markdown-preview-view .section-meter-title-badge,
+.section-meter-title-badge {
+  display: inline-flex;
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-start: 0.35em;
+  flex: none;
+  margin-block-start: 0;
+  font-size: var(--font-ui-small);
+  vertical-align: middle;
+  transform: none;
+}
+
+.section-meter-title-row {
+  position: relative;
+}
+
+.section-meter-setting-guidance {
+  margin-block-start: 0.35em;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.35;
+}

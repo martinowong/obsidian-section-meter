@@ -215,7 +215,7 @@ function createSectionMeterExtension(
     ) {
       if (!settings.showFloatingSelectionBadge
         || !selectionOverride
-        || isPositionVisible(selectionOverride.headingEnd, view.visibleRanges)
+        || isPositionInEditorViewport(view, selectionOverride.headingEnd)
       ) {
         this.removeFloatingSelectionBadge();
         return;
@@ -242,6 +242,8 @@ function createSectionMeterExtension(
           "Selection stats"
         );
       }
+
+      positionFloatingSelectionBadge(view, this.floatingSelectionBadge);
     }
 
     private removeFloatingSelectionBadge() {
@@ -434,6 +436,30 @@ function isPositionVisible(
   ranges: readonly { from: number; to: number }[]
 ): boolean {
   return ranges.some((range) => position >= range.from && position <= range.to);
+}
+
+function isPositionInEditorViewport(view: EditorView, position: number): boolean {
+  const coords = view.coordsAtPos(position);
+  if (!coords) {
+    return false;
+  }
+
+  const viewport = view.scrollDOM.getBoundingClientRect();
+  return coords.bottom >= viewport.top
+    && coords.top <= viewport.bottom
+    && coords.right >= viewport.left
+    && coords.left <= viewport.right;
+}
+
+function positionFloatingSelectionBadge(view: EditorView, badge: HTMLElement) {
+  const viewport = view.scrollDOM.getBoundingClientRect();
+  const top = Math.max(viewport.top + 10, 10);
+  const right = Math.max(window.innerWidth - viewport.right + 16, 16);
+  const maxWidth = Math.max(160, Math.min(384, viewport.width - 32));
+
+  badge.style.top = `${top}px`;
+  badge.style.right = `${right}px`;
+  badge.style.maxWidth = `${maxWidth}px`;
 }
 
 function getHeadingSelectionOverride(

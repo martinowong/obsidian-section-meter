@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.1
+
+- Fixed floating selection stats so the badge anchors to the visible editor pane when the target heading is offscreen.
+
 ## 0.10.0
 
 - Added a floating selection badge when the target heading is scrolled out of view.

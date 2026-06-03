@@ -29,11 +29,10 @@
 }
 
 .section-meter-floating-selection-badge {
-  position: absolute;
-  inset-block-start: 0.65rem;
-  inset-inline-end: 1rem;
-  z-index: 20;
-  max-width: min(24rem, calc(100% - 2rem));
+  position: fixed;
+  z-index: 100;
+  overflow: hidden;
+  text-overflow: ellipsis;
   margin: 0;
   box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
   font-size: var(--font-ui-small);

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.4
+
+- Fixed the title badge in mobile and narrow editor layouts by inserting it directly after the inline title.
+
 ## 0.10.3
 
 - Replaced the `builtin-modules` development dependency with Node's built-in module list.

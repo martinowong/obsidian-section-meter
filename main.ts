@@ -173,7 +173,7 @@ export default class SectionMeterPlugin extends Plugin {
       "Whole note stats"
     );
     titleRow.classList.add("section-meter-title-row");
-    titleRow.appendChild(badge);
+    titleEl.insertAdjacentElement("afterend", badge);
   }
 
   private updateStatusBar(status: StatusBarStats | null) {

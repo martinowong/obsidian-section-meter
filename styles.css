@@ -46,6 +46,48 @@
   position: relative;
 }
 
+body.is-mobile .section-meter-title-row,
+.is-mobile .section-meter-title-row {
+  position: static;
+}
+
+body.is-mobile .markdown-source-view.mod-cm6 .section-meter-title-badge,
+body.is-mobile .markdown-preview-view .section-meter-title-badge,
+body.is-mobile .section-meter-title-badge,
+.is-mobile .markdown-source-view.mod-cm6 .section-meter-title-badge,
+.is-mobile .markdown-preview-view .section-meter-title-badge,
+.is-mobile .section-meter-title-badge {
+  position: static;
+  inset: auto;
+  max-inline-size: 100%;
+  box-sizing: border-box;
+  margin-inline-start: 0;
+  margin-block-start: 0.35em;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+}
+
+@media (max-width: 700px) {
+  .section-meter-title-row {
+    position: static;
+  }
+
+  .markdown-source-view.mod-cm6 .section-meter-title-badge,
+  .markdown-preview-view .section-meter-title-badge,
+  .section-meter-title-badge {
+    position: static;
+    inset: auto;
+    max-inline-size: 100%;
+    box-sizing: border-box;
+    margin-inline-start: 0;
+    margin-block-start: 0.35em;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.3;
+  }
+}
+
 .section-meter-setting-guidance {
   margin-block-start: 0.35em;
   color: var(--text-muted);

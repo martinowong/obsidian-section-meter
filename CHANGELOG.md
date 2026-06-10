@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.3
+
+- Updated settings section headings to follow Obsidian's sentence-case UI style.
+
 ## 0.11.2
 
 - Declared Obsidian 1.13.0 as the minimum app version for the reorganized settings menu.
@@ -8,7 +12,7 @@
 ## 0.11.1
 
 - Fixed release review warnings around typed settings data, popout-window document usage, settings API deprecations, section array typing, and a Markdown cleanup regex.
-- Reorganized the settings menu into clearer Badge Display, Counting Rules, Status Bar, and Writing Targets groups.
+- Reorganized the settings menu into clearer Badge display, Counting rules, Status bar, and Writing targets groups.
 
 ## 0.11.0
 

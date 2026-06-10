@@ -428,7 +428,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
   private getBadgeDisplaySettings(): SettingDefinitionGroup {
     return {
       type: "group",
-      heading: "Badge Display",
+      heading: "Badge display",
       items: [
         this.createToggleSetting(
           "Word count",
@@ -500,7 +500,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
   private getCountingRuleSettings(): SettingDefinitionGroup {
     return {
       type: "group",
-      heading: "Counting Rules",
+      heading: "Counting rules",
       items: [
         this.createReadingSpeedSetting(),
         this.createToggleSetting(
@@ -523,7 +523,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
   private getStatusBarSettings(): SettingDefinitionGroup {
     return {
       type: "group",
-      heading: "Status Bar",
+      heading: "Status bar",
       items: [
         this.createToggleSetting(
           "Whole note",
@@ -582,7 +582,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
   private getWritingTargetSettings(): SettingDefinitionGroup {
     return {
       type: "group",
-      heading: "Writing Targets",
+      heading: "Writing targets",
       items: [
         this.createGuidanceSetting(
           "Supported target formats",

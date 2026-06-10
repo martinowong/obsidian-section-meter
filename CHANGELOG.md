@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.1
+
+- Fixed release review warnings around typed settings data, popout-window document usage, settings API deprecations, section array typing, and a Markdown cleanup regex.
+- Reorganized the settings menu into clearer Badge Display, Counting Rules, Status Bar, and Writing Targets groups.
+
 ## 0.11.0
 
 - Added visible `Target: ...` writing goals for whole notes and heading sections.

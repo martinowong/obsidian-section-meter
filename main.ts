@@ -12,8 +12,12 @@ import {
   App,
   MarkdownView,
   Plugin,
-  PluginSettingTab,
-  Setting
+  PluginSettingTab
+} from "obsidian";
+import type {
+  SettingDefinition,
+  SettingDefinitionGroup,
+  SettingDefinitionItem
 } from "obsidian";
 import {
   SectionMeterSettings,
@@ -51,8 +55,8 @@ const MAX_TARGET_OVERAGE_WARNING_PERCENT = 200;
 const TARGET_OVERAGE_WARNING_PERCENT_STEP = 5;
 const SELECTION_BADGE_UPDATE_DELAY_MS = 220;
 
-type StoredSettings = Partial<SectionMeterSettings> & {
-  labelStyle?: LegacyLabelStyle;
+type StoredSettings = Partial<Record<keyof SectionMeterSettings, unknown>> & {
+  labelStyle?: unknown;
 };
 
 export default class SectionMeterPlugin extends Plugin {
@@ -100,10 +104,8 @@ export default class SectionMeterPlugin extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = normalizeSettings({
-      ...DEFAULT_SETTINGS,
-      ...(await this.loadData())
-    });
+    const loadedSettings: unknown = await this.loadData();
+    this.settings = normalizeSettings(readStoredSettings(loadedSettings));
   }
 
   async saveSettings() {
@@ -294,7 +296,7 @@ function createSectionMeterExtension(
 
     destroy() {
       if (this.selectionBadgeUpdateTimer !== null) {
-        window.clearTimeout(this.selectionBadgeUpdateTimer);
+        activeWindow.clearTimeout(this.selectionBadgeUpdateTimer);
       }
 
       this.summaries = [];
@@ -302,10 +304,10 @@ function createSectionMeterExtension(
 
     private queueSelectionBadgeRefresh(view: EditorView) {
       if (this.selectionBadgeUpdateTimer !== null) {
-        window.clearTimeout(this.selectionBadgeUpdateTimer);
+        activeWindow.clearTimeout(this.selectionBadgeUpdateTimer);
       }
 
-      this.selectionBadgeUpdateTimer = window.setTimeout(() => {
+      this.selectionBadgeUpdateTimer = activeWindow.setTimeout(() => {
         this.selectionBadgeUpdateTimer = null;
         this.selectionBadgeRefreshQueued = true;
         view.dispatch({});
@@ -414,207 +416,357 @@ class SectionMeterSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
-  display(): void {
-    const { containerEl } = this;
-    containerEl.empty();
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [
+      this.getBadgeDisplaySettings(),
+      this.getCountingRuleSettings(),
+      this.getStatusBarSettings(),
+      this.getWritingTargetSettings()
+    ];
+  }
 
-    const readingSpeedGuidanceEl = document.createElement("div");
-    readingSpeedGuidanceEl.className = "section-meter-setting-guidance";
-    readingSpeedGuidanceEl.textContent = getReadingSpeedGuidance(
-      this.plugin.settings.wordsPerMinute
-    );
+  private getBadgeDisplaySettings(): SettingDefinitionGroup {
+    return {
+      type: "group",
+      heading: "Badge Display",
+      items: [
+        this.createToggleSetting(
+          "Word count",
+          "Show readable word counts in heading and title badges.",
+          () => this.plugin.settings.showWords,
+          async (value) => {
+            this.plugin.settings.showWords = value;
+            await this.plugin.saveSettings();
+          },
+          { updateAfterChange: true }
+        ),
+        this.createToggleSetting(
+          "Reading time",
+          "Show estimated reading time in heading and title badges.",
+          () => this.plugin.settings.showTiming,
+          async (value) => {
+            this.plugin.settings.showTiming = value;
+            await this.plugin.saveSettings();
+          },
+          { updateAfterChange: true }
+        ),
+        this.createToggleSetting(
+          "Character count",
+          "Show readable character counts in heading and title badges.",
+          () => this.plugin.settings.showCharacters,
+          async (value) => {
+            this.plugin.settings.showCharacters = value;
+            await this.plugin.saveSettings();
+          },
+          { updateAfterChange: true }
+        ),
+        this.createTextSetting(
+          "Separator",
+          "Single character used between enabled badge label parts.",
+          DEFAULT_SETTINGS.labelSeparator,
+          () => this.plugin.settings.labelSeparator,
+          async (value) => {
+            this.plugin.settings.labelSeparator = normalizeSeparator(value);
+            await this.plugin.saveSettings();
+          },
+          { updateAfterChange: true }
+        ),
+        this.createTextSetting(
+          "Minimum word count",
+          "Hide badges for sections below this word count. Use 0 to show all headings.",
+          String(DEFAULT_SETTINGS.minimumWordCount),
+          () => String(this.plugin.settings.minimumWordCount),
+          async (value) => {
+            this.plugin.settings.minimumWordCount = parseNonNegativeInteger(
+              value,
+              DEFAULT_SETTINGS.minimumWordCount
+            );
+            await this.plugin.saveSettings();
+          }
+        ),
+        this.createToggleSetting(
+          "Hide empty sections",
+          "Hide badges for headings with no readable words below them.",
+          () => this.plugin.settings.hideEmptySections,
+          async (value) => {
+            this.plugin.settings.hideEmptySections = value;
+            await this.plugin.saveSettings();
+          }
+        )
+      ]
+    };
+  }
 
-    new Setting(containerEl)
-      .setName("Reading speed")
-      .setDesc("Words per minute used to estimate reading time.")
-      .then((setting) => {
-        setting.descEl.appendChild(readingSpeedGuidanceEl);
-      })
-      .addSlider((slider) => slider
-        .setLimits(MIN_WORDS_PER_MINUTE, MAX_WORDS_PER_MINUTE, WORDS_PER_MINUTE_STEP)
-        .setValue(this.plugin.settings.wordsPerMinute)
-        .setDynamicTooltip()
-        .onChange(async (value) => {
-          this.plugin.settings.wordsPerMinute = value;
-          readingSpeedGuidanceEl.textContent = getReadingSpeedGuidance(value);
-          await this.plugin.saveSettings();
-        }));
+  private getCountingRuleSettings(): SettingDefinitionGroup {
+    return {
+      type: "group",
+      heading: "Counting Rules",
+      items: [
+        this.createReadingSpeedSetting(),
+        this.createToggleSetting(
+          "Count spaces",
+          "Count normalized spaces between words in character counts.",
+          () => this.plugin.settings.countCharactersWithSpaces,
+          async (value) => {
+            this.plugin.settings.countCharactersWithSpaces = value;
+            await this.plugin.saveSettings();
+          },
+          {
+            disabled: () => !this.plugin.settings.showCharacters
+              && !this.plugin.settings.showStatusBarCharacters
+          }
+        )
+      ]
+    };
+  }
 
-    new Setting(containerEl)
-      .setName("Badge labels")
-      .setHeading();
+  private getStatusBarSettings(): SettingDefinitionGroup {
+    return {
+      type: "group",
+      heading: "Status Bar",
+      items: [
+        this.createToggleSetting(
+          "Whole note",
+          "Show whole-note stats in Obsidian's bottom status bar.",
+          () => this.plugin.settings.showStatusBarNoteStats,
+          async (value) => {
+            this.plugin.settings.showStatusBarNoteStats = value;
+            await this.plugin.saveSettings();
+          },
+          { updateAfterChange: true }
+        ),
+        this.createToggleSetting(
+          "Selection",
+          "Show selected-text stats in Obsidian's bottom status bar.",
+          () => this.plugin.settings.showStatusBarSelectionStats,
+          async (value) => {
+            this.plugin.settings.showStatusBarSelectionStats = value;
+            await this.plugin.saveSettings();
+          },
+          { updateAfterChange: true }
+        ),
+        this.createToggleSetting(
+          "Word count",
+          "Show word counts in the status bar.",
+          () => this.plugin.settings.showStatusBarWords,
+          async (value) => {
+            this.plugin.settings.showStatusBarWords = value;
+            await this.plugin.saveSettings();
+          },
+          { updateAfterChange: true }
+        ),
+        this.createToggleSetting(
+          "Reading time",
+          "Show estimated reading time in the status bar.",
+          () => this.plugin.settings.showStatusBarTiming,
+          async (value) => {
+            this.plugin.settings.showStatusBarTiming = value;
+            await this.plugin.saveSettings();
+          },
+          { updateAfterChange: true }
+        ),
+        this.createToggleSetting(
+          "Character count",
+          "Show readable character counts in the status bar.",
+          () => this.plugin.settings.showStatusBarCharacters,
+          async (value) => {
+            this.plugin.settings.showStatusBarCharacters = value;
+            await this.plugin.saveSettings();
+          },
+          { updateAfterChange: true }
+        )
+      ]
+    };
+  }
 
-    new Setting(containerEl)
-      .setName("Word count")
-      .setDesc("Show readable word counts in badges.")
-      .addToggle((toggle) => toggle
-        .setValue(this.plugin.settings.showWords)
-        .onChange(async (value) => {
-          this.plugin.settings.showWords = value;
-          await this.plugin.saveSettings();
-          this.display();
-        }));
-
-    new Setting(containerEl)
-      .setName("Timing")
-      .setDesc("Show estimated reading time in badges.")
-      .addToggle((toggle) => toggle
-        .setValue(this.plugin.settings.showTiming)
-        .onChange(async (value) => {
-          this.plugin.settings.showTiming = value;
-          await this.plugin.saveSettings();
-          this.display();
-        }));
-
-    new Setting(containerEl)
-      .setName("Characters")
-      .setDesc("Show readable character counts in badges.")
-      .addToggle((toggle) => toggle
-        .setValue(this.plugin.settings.showCharacters)
-        .onChange(async (value) => {
-          this.plugin.settings.showCharacters = value;
-          await this.plugin.saveSettings();
-          this.display();
-        }));
-
-    new Setting(containerEl)
-      .setName("Include spaces")
-      .setDesc("Count normalized spaces between words in character counts.")
-      .addToggle((toggle) => toggle
-        .setValue(this.plugin.settings.countCharactersWithSpaces)
-        .onChange(async (value) => {
-          this.plugin.settings.countCharactersWithSpaces = value;
-          await this.plugin.saveSettings();
-        }));
-
-    new Setting(containerEl)
-      .setName("Separator")
-      .setDesc("Single character used between enabled label parts.")
-      .addText((text) => text
-        .setPlaceholder(DEFAULT_SETTINGS.labelSeparator)
-        .setValue(this.plugin.settings.labelSeparator)
-        .onChange(async (value) => {
-          this.plugin.settings.labelSeparator = normalizeSeparator(value);
-          await this.plugin.saveSettings();
-          this.display();
-        }));
-
-    new Setting(containerEl)
-      .setName("Minimum word count")
-      .setDesc("Hide badges for sections below this word count. Use 0 to show all headings.")
-      .addText((text) => text
-        .setPlaceholder(String(DEFAULT_SETTINGS.minimumWordCount))
-        .setValue(String(this.plugin.settings.minimumWordCount))
-        .onChange(async (value) => {
-          this.plugin.settings.minimumWordCount = parseNonNegativeInteger(
-            value,
-            DEFAULT_SETTINGS.minimumWordCount
-          );
-          await this.plugin.saveSettings();
-        }));
-
-    new Setting(containerEl)
-      .setName("Hide empty sections")
-      .setDesc("Hide badges for headings with no readable words below them.")
-      .addToggle((toggle) => toggle
-        .setValue(this.plugin.settings.hideEmptySections)
-        .onChange(async (value) => {
-          this.plugin.settings.hideEmptySections = value;
-          await this.plugin.saveSettings();
-        }));
-
-    new Setting(containerEl)
-      .setName("Writing targets")
-      .setHeading();
-
-    new Setting(containerEl)
-      .setName("Overage warning threshold")
-      .setDesc("Turn target progress red when it reaches this percentage of the target.")
-      .addSlider((slider) => slider
-        .setLimits(
+  private getWritingTargetSettings(): SettingDefinitionGroup {
+    return {
+      type: "group",
+      heading: "Writing Targets",
+      items: [
+        this.createGuidanceSetting(
+          "Supported target formats",
+          "Examples: Target: 250 words, Target: 1800 characters, Target: 3m, Target: 2m 30s."
+        ),
+        this.createDropdownSetting(
+          "Progress label",
+          "Show target progress as a count or as a percentage.",
+          () => this.plugin.settings.targetProgressLabelStyle,
+          {
+            count: "Count (n/N)",
+            percentage: "Percentage"
+          },
+          async (value) => {
+            this.plugin.settings.targetProgressLabelStyle =
+              normalizeTargetProgressLabelStyle(value);
+            await this.plugin.saveSettings();
+          }
+        ),
+        this.createSliderSetting(
+          "Overage warning threshold",
+          "Turn target progress red when it reaches this percentage of the target.",
           MIN_TARGET_OVERAGE_WARNING_PERCENT,
           MAX_TARGET_OVERAGE_WARNING_PERCENT,
-          TARGET_OVERAGE_WARNING_PERCENT_STEP
+          TARGET_OVERAGE_WARNING_PERCENT_STEP,
+          () => this.plugin.settings.targetOverageWarningPercent,
+          async (value) => {
+            this.plugin.settings.targetOverageWarningPercent = value;
+            await this.plugin.saveSettings();
+          }
         )
-        .setValue(this.plugin.settings.targetOverageWarningPercent)
-        .setDynamicTooltip()
-        .onChange(async (value) => {
-          this.plugin.settings.targetOverageWarningPercent = value;
-          await this.plugin.saveSettings();
-        }));
+      ]
+    };
+  }
 
-    new Setting(containerEl)
-      .setName("Target label")
-      .setDesc("Show target progress as a count or as a percentage.")
-      .addDropdown((dropdown) => dropdown
-        .addOption("count", "Count (n/N)")
-        .addOption("percentage", "Percentage")
-        .setValue(this.plugin.settings.targetProgressLabelStyle)
-        .onChange(async (value) => {
-          this.plugin.settings.targetProgressLabelStyle = normalizeTargetProgressLabelStyle(value);
-          await this.plugin.saveSettings();
-        }));
+  private createReadingSpeedSetting(): SettingDefinition {
+    return {
+      name: "Reading speed",
+      desc: "Words per minute used to estimate reading time.",
+      render: (setting) => {
+        const readingSpeedGuidanceEl = activeDocument.createElement("div");
+        readingSpeedGuidanceEl.className = "section-meter-setting-guidance";
+        readingSpeedGuidanceEl.textContent = getReadingSpeedGuidance(
+          this.plugin.settings.wordsPerMinute
+        );
 
-    new Setting(containerEl)
-      .setName("Status bar")
-      .setHeading();
+        setting
+          .setName("Reading speed")
+          .setDesc("Words per minute used to estimate reading time.")
+          .then((setting) => {
+            setting.descEl.appendChild(readingSpeedGuidanceEl);
+          })
+          .addSlider((slider) => slider
+            .setLimits(MIN_WORDS_PER_MINUTE, MAX_WORDS_PER_MINUTE, WORDS_PER_MINUTE_STEP)
+            .setValue(this.plugin.settings.wordsPerMinute)
+            .setDynamicTooltip()
+            .onChange(async (value) => {
+              this.plugin.settings.wordsPerMinute = value;
+              readingSpeedGuidanceEl.textContent = getReadingSpeedGuidance(value);
+              await this.plugin.saveSettings();
+            }));
+      }
+    };
+  }
 
-    new Setting(containerEl)
-      .setName("Whole note")
-      .setDesc("Show whole-note stats in Obsidian's bottom status bar.")
-      .addToggle((toggle) => toggle
-        .setValue(this.plugin.settings.showStatusBarNoteStats)
-        .onChange(async (value) => {
-          this.plugin.settings.showStatusBarNoteStats = value;
-          await this.plugin.saveSettings();
-          this.display();
-        }));
+  private createToggleSetting(
+    name: string,
+    desc: string,
+    getValue: () => boolean,
+    onChange: (value: boolean) => void | Promise<void>,
+    options: SettingRowOptions = {}
+  ): SettingDefinition {
+    return {
+      name,
+      desc,
+      render: (setting) => {
+        setting
+          .setName(name)
+          .setDesc(desc)
+          .addToggle((toggle) => toggle
+            .setValue(getValue())
+            .setDisabled(options.disabled?.() ?? false)
+            .onChange(async (value) => {
+              await onChange(value);
+              if (options.updateAfterChange) {
+                this.update();
+              }
+            }));
+      }
+    };
+  }
 
-    new Setting(containerEl)
-      .setName("Selection")
-      .setDesc("Show selected-text stats in Obsidian's bottom status bar.")
-      .addToggle((toggle) => toggle
-        .setValue(this.plugin.settings.showStatusBarSelectionStats)
-        .onChange(async (value) => {
-          this.plugin.settings.showStatusBarSelectionStats = value;
-          await this.plugin.saveSettings();
-          this.display();
-        }));
+  private createTextSetting(
+    name: string,
+    desc: string,
+    placeholder: string,
+    getValue: () => string,
+    onChange: (value: string) => void | Promise<void>,
+    options: SettingRowOptions = {}
+  ): SettingDefinition {
+    return {
+      name,
+      desc,
+      render: (setting) => {
+        setting
+          .setName(name)
+          .setDesc(desc)
+          .addText((text) => text
+            .setPlaceholder(placeholder)
+            .setValue(getValue())
+            .onChange(async (value) => {
+              await onChange(value);
+              if (options.updateAfterChange) {
+                this.update();
+              }
+            }));
+      }
+    };
+  }
 
-    new Setting(containerEl)
-      .setName("Status bar word count")
-      .setDesc("Show word counts in the status bar.")
-      .addToggle((toggle) => toggle
-        .setValue(this.plugin.settings.showStatusBarWords)
-        .onChange(async (value) => {
-          this.plugin.settings.showStatusBarWords = value;
-          await this.plugin.saveSettings();
-          this.display();
-        }));
+  private createSliderSetting(
+    name: string,
+    desc: string,
+    min: number,
+    max: number,
+    step: number,
+    getValue: () => number,
+    onChange: (value: number) => void | Promise<void>
+  ): SettingDefinition {
+    return {
+      name,
+      desc,
+      render: (setting) => {
+        setting
+          .setName(name)
+          .setDesc(desc)
+          .addSlider((slider) => slider
+            .setLimits(min, max, step)
+            .setValue(getValue())
+            .setDynamicTooltip()
+            .onChange(onChange));
+      }
+    };
+  }
 
-    new Setting(containerEl)
-      .setName("Status bar timing")
-      .setDesc("Show estimated reading time in the status bar.")
-      .addToggle((toggle) => toggle
-        .setValue(this.plugin.settings.showStatusBarTiming)
-        .onChange(async (value) => {
-          this.plugin.settings.showStatusBarTiming = value;
-          await this.plugin.saveSettings();
-          this.display();
-        }));
+  private createDropdownSetting(
+    name: string,
+    desc: string,
+    getValue: () => string,
+    options: Record<string, string>,
+    onChange: (value: string) => void | Promise<void>
+  ): SettingDefinition {
+    return {
+      name,
+      desc,
+      render: (setting) => {
+        setting
+          .setName(name)
+          .setDesc(desc)
+          .addDropdown((dropdown) => dropdown
+            .addOptions(options)
+            .setValue(getValue())
+            .onChange(onChange));
+      }
+    };
+  }
 
-    new Setting(containerEl)
-      .setName("Status bar characters")
-      .setDesc("Show readable character counts in the status bar.")
-      .addToggle((toggle) => toggle
-        .setValue(this.plugin.settings.showStatusBarCharacters)
-        .onChange(async (value) => {
-          this.plugin.settings.showStatusBarCharacters = value;
-          await this.plugin.saveSettings();
-          this.display();
-        }));
+  private createGuidanceSetting(name: string, desc: string): SettingDefinition {
+    return {
+      name,
+      desc,
+      render: (setting) => {
+        setting
+          .setName(name)
+          .setDesc(desc);
+      }
+    };
   }
 }
+
+type SettingRowOptions = {
+  disabled?: () => boolean;
+  updateAfterChange?: boolean;
+};
 
 type SelectionStats = Pick<
   SectionMeterSummary,
@@ -758,17 +910,29 @@ function normalizeSettings(settings: StoredSettings): SectionMeterSettings {
     wordsPerMinute: normalizeWordsPerMinute(settings.wordsPerMinute),
     ...displaySettings,
     countCharactersWithSpaces:
-      settings.countCharactersWithSpaces ?? DEFAULT_SETTINGS.countCharactersWithSpaces,
+      normalizeBoolean(
+        settings.countCharactersWithSpaces,
+        DEFAULT_SETTINGS.countCharactersWithSpaces
+      ),
     labelSeparator: normalizeSeparator(settings.labelSeparator),
     minimumWordCount: parseNonNegativeInteger(
       settings.minimumWordCount,
       DEFAULT_SETTINGS.minimumWordCount
     ),
-    hideEmptySections: Boolean(settings.hideEmptySections),
+    hideEmptySections: normalizeBoolean(
+      settings.hideEmptySections,
+      DEFAULT_SETTINGS.hideEmptySections
+    ),
     showStatusBarNoteStats:
-      settings.showStatusBarNoteStats ?? DEFAULT_SETTINGS.showStatusBarNoteStats,
+      normalizeBoolean(
+        settings.showStatusBarNoteStats,
+        DEFAULT_SETTINGS.showStatusBarNoteStats
+      ),
     showStatusBarSelectionStats:
-      settings.showStatusBarSelectionStats ?? DEFAULT_SETTINGS.showStatusBarSelectionStats,
+      normalizeBoolean(
+        settings.showStatusBarSelectionStats,
+        DEFAULT_SETTINGS.showStatusBarSelectionStats
+      ),
     ...statusBarDisplaySettings,
     targetOverageWarningPercent: normalizeTargetOverageWarningPercent(
       settings.targetOverageWarningPercent
@@ -777,6 +941,14 @@ function normalizeSettings(settings: StoredSettings): SectionMeterSettings {
       settings.targetProgressLabelStyle
     )
   };
+}
+
+function readStoredSettings(value: unknown): StoredSettings {
+  return isRecord(value) ? value : {};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function formatStatusBarStats(
@@ -819,9 +991,9 @@ function createReadingTimeBadge(
   selectOnClick = false,
   scopeLabel = "Reading stats"
 ): HTMLElement {
-  const badge = document.createElement("span");
+  const badge = activeDocument.createElement("span");
   badge.className = ["section-meter-badge", extraClass].filter(Boolean).join(" ");
-  const labelEl = document.createElement("span");
+  const labelEl = activeDocument.createElement("span");
   labelEl.className = "section-meter-badge-label";
   labelEl.textContent = label;
   badge.appendChild(labelEl);
@@ -862,10 +1034,10 @@ function createStatusBarStatsEl(
   stats: SelectionStats,
   settings: SectionMeterSettings
 ): HTMLElement {
-  const wrapper = document.createElement("span");
+  const wrapper = activeDocument.createElement("span");
   wrapper.className = "section-meter-status-bar-part";
 
-  const labelEl = document.createElement("span");
+  const labelEl = activeDocument.createElement("span");
   labelEl.textContent = `${scopeLabel}: ${formatConfiguredStats(stats, settings)}`;
   wrapper.appendChild(labelEl);
 
@@ -883,7 +1055,7 @@ function createStatusBarStatsEl(
 }
 
 function createStatusBarTargetEl(target: WritingTargetProgress): HTMLElement {
-  const wrapper = document.createElement("span");
+  const wrapper = activeDocument.createElement("span");
   wrapper.className = "section-meter-status-bar-part section-meter-status-bar-target";
 
   const targetTextEl = createTargetLabelEl(target);
@@ -896,35 +1068,35 @@ function createStatusBarTargetEl(target: WritingTargetProgress): HTMLElement {
 }
 
 function createStatusBarSeparatorEl(): HTMLElement {
-  const separator = document.createElement("span");
+  const separator = activeDocument.createElement("span");
   separator.className = "section-meter-status-bar-separator";
   separator.textContent = "|";
   return separator;
 }
 
 function createTargetLabelEl(target: WritingTargetProgress): HTMLElement {
-  const labelEl = document.createElement("span");
+  const labelEl = activeDocument.createElement("span");
   labelEl.className = "section-meter-target-label";
   labelEl.textContent = target.label;
   return labelEl;
 }
 
 function createInlineTargetSeparatorEl(): HTMLElement {
-  const separator = document.createElement("span");
+  const separator = activeDocument.createElement("span");
   separator.className = "section-meter-target-separator";
   separator.textContent = "|";
   return separator;
 }
 
 function createTargetProgressEl(target: WritingTargetProgress): HTMLElement {
-  const progressEl = document.createElement("span");
+  const progressEl = activeDocument.createElement("span");
   progressEl.className = [
     "section-meter-target-progress",
     getTargetProgressStateClass(target)
   ].join(" ");
   progressEl.setAttribute("aria-hidden", "true");
 
-  const fillEl = document.createElement("span");
+  const fillEl = activeDocument.createElement("span");
   fillEl.className = "section-meter-target-progress-fill";
   fillEl.style.width = `${Math.min(100, Math.max(0, target.percent))}%`;
   progressEl.appendChild(fillEl);
@@ -956,12 +1128,12 @@ function stopEditorMouseHandling(event: Event) {
 }
 
 function selectBadgeText(badge: HTMLElement) {
-  const selection = window.getSelection();
+  const selection = activeWindow.getSelection();
   if (!selection) {
     return;
   }
 
-  const range = document.createRange();
+  const range = activeDocument.createRange();
   range.selectNodeContents(badge);
   selection.removeAllRanges();
   selection.addRange(range);
@@ -1007,14 +1179,16 @@ function targetProgressesEqual(
     && first.label === second.label;
 }
 
-function normalizeDisplaySettings(settings: StoredSettings) {
-  const legacy = settings.labelStyle;
+function normalizeDisplaySettings(
+  settings: StoredSettings
+): Pick<SectionMeterSettings, "showWords" | "showTiming" | "showCharacters"> {
+  const legacy = normalizeLegacyLabelStyle(settings.labelStyle);
   const migrated = legacy
     ? displaySettingsFromLegacyLabelStyle(legacy)
     : {
-      showWords: settings.showWords ?? DEFAULT_SETTINGS.showWords,
-      showTiming: settings.showTiming ?? DEFAULT_SETTINGS.showTiming,
-      showCharacters: settings.showCharacters ?? DEFAULT_SETTINGS.showCharacters
+      showWords: normalizeBoolean(settings.showWords, DEFAULT_SETTINGS.showWords),
+      showTiming: normalizeBoolean(settings.showTiming, DEFAULT_SETTINGS.showTiming),
+      showCharacters: normalizeBoolean(settings.showCharacters, DEFAULT_SETTINGS.showCharacters)
     };
 
   if (!migrated.showWords && !migrated.showTiming && !migrated.showCharacters) {
@@ -1027,14 +1201,22 @@ function normalizeDisplaySettings(settings: StoredSettings) {
   return migrated;
 }
 
-function normalizeStatusBarDisplaySettings(settings: StoredSettings) {
+function normalizeStatusBarDisplaySettings(
+  settings: StoredSettings
+): Pick<
+  SectionMeterSettings,
+  "showStatusBarWords" | "showStatusBarTiming" | "showStatusBarCharacters"
+> {
   const normalized = {
     showStatusBarWords:
-      settings.showStatusBarWords ?? DEFAULT_SETTINGS.showStatusBarWords,
+      normalizeBoolean(settings.showStatusBarWords, DEFAULT_SETTINGS.showStatusBarWords),
     showStatusBarTiming:
-      settings.showStatusBarTiming ?? DEFAULT_SETTINGS.showStatusBarTiming,
+      normalizeBoolean(settings.showStatusBarTiming, DEFAULT_SETTINGS.showStatusBarTiming),
     showStatusBarCharacters:
-      settings.showStatusBarCharacters ?? DEFAULT_SETTINGS.showStatusBarCharacters
+      normalizeBoolean(
+        settings.showStatusBarCharacters,
+        DEFAULT_SETTINGS.showStatusBarCharacters
+      )
   };
 
   if (!normalized.showStatusBarWords
@@ -1055,6 +1237,25 @@ function normalizeSeparator(value: unknown): string {
   }
 
   return Array.from(value.trim())[0] ?? DEFAULT_SETTINGS.labelSeparator;
+}
+
+function normalizeBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function normalizeLegacyLabelStyle(value: unknown): LegacyLabelStyle | null {
+  const labelStyles: LegacyLabelStyle[] = [
+    "words",
+    "time",
+    "characters",
+    "words-and-time",
+    "words-and-minutes",
+    "words-and-characters",
+    "characters-and-time",
+    "words-characters-and-time"
+  ];
+
+  return labelStyles.includes(value as LegacyLabelStyle) ? value as LegacyLabelStyle : null;
 }
 
 function getReadingSpeedGuidance(wordsPerMinute: number): string {

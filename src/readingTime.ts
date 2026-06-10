@@ -129,7 +129,7 @@ export function parseHeadingSections(markdown: string): HeadingSection[] {
     });
   }
 
-  const sections: HeadingSection[] = new Array(headings.length);
+  const sections = new Array<HeadingSection>(headings.length);
   const openHeadingIndexes: number[] = [];
 
   headings.forEach((heading, index) => {
@@ -353,7 +353,7 @@ function stripMarkdownToReadableText(markdown: string): string {
   text = text.replace(/^\s{0,3}(?:[-*+]|\d+[.)])\s+/gm, "");
   text = text.replace(/[*_~]/g, "");
   text = text.replace(/[ \t]*\|[ \t]*/g, " ");
-  text = text.replace(/[=#\[\]{}]/g, "");
+  text = text.replace(/[=#{}[\]]/g, "");
   text = text.replace(/<\/?[^>]+>/g, "");
   return text;
 }

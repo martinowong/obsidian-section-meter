@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.2
+
+- Declared Obsidian 1.13.0 as the minimum app version for the reorganized settings menu.
+- Kept timer scheduling on the global window for Obsidian compatibility.
+
 ## 0.11.1
 
 - Fixed release review warnings around typed settings data, popout-window document usage, settings API deprecations, section array typing, and a Markdown cleanup regex.

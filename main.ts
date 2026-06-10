@@ -296,7 +296,7 @@ function createSectionMeterExtension(
 
     destroy() {
       if (this.selectionBadgeUpdateTimer !== null) {
-        activeWindow.clearTimeout(this.selectionBadgeUpdateTimer);
+        window.clearTimeout(this.selectionBadgeUpdateTimer);
       }
 
       this.summaries = [];
@@ -304,10 +304,10 @@ function createSectionMeterExtension(
 
     private queueSelectionBadgeRefresh(view: EditorView) {
       if (this.selectionBadgeUpdateTimer !== null) {
-        activeWindow.clearTimeout(this.selectionBadgeUpdateTimer);
+        window.clearTimeout(this.selectionBadgeUpdateTimer);
       }
 
-      this.selectionBadgeUpdateTimer = activeWindow.setTimeout(() => {
+      this.selectionBadgeUpdateTimer = window.setTimeout(() => {
         this.selectionBadgeUpdateTimer = null;
         this.selectionBadgeRefreshQueued = true;
         view.dispatch({});

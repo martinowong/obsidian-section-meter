@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.0
+
+- Added visible `Target: ...` writing goals for whole notes and heading sections.
+- Added target progress bars with grey, yellow, light-green, green, and red states.
+- Added target progress to heading badges, the note-title badge, and the status bar.
+- Added settings for the overage warning threshold and target label style.
+- Debounced selection-driven heading badge updates to reduce jitter while selecting text.
+
 ## 0.10.4
 
 - Fixed the title badge in mobile and narrow editor layouts by inserting it directly after the inline title.

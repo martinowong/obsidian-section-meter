@@ -21,8 +21,39 @@ Vibecoded with Codex by Martino Wong.
 - Separate status-bar toggles for whole-note stats, selected-text stats, words, timing, and characters.
 - Character counts include spaces by default, with a toggle to exclude spaces.
 - Configurable single-character separator between enabled label parts.
+- Visible `Target: ...` lines for whole-note and per-heading writing goals.
+- Target progress badges with compact target labels and a compact bar while keeping the normal section stats visible.
 - A reading-speed slider with guidance for read-aloud, typical, and fast reading paces.
+- A configurable overage warning threshold for writing targets.
+- A target label setting for count labels such as `120 / 250 w` or percentage labels such as `48%`.
 - Settings for minimum word count and empty-section visibility.
+
+## Writing targets
+
+Add a visible `Target: ...` line before the first heading for a whole-note target, or inside a heading section for that section's target. Target lines are ignored by the word, character, and reading-time counts.
+
+```md
+Target: 1200 words
+
+# Draft
+
+Target: 250 words
+Section text...
+
+## Shorter subsection
+
+Target: 1800 characters
+More text...
+
+## Timed section
+
+Target: 3 min
+More text...
+```
+
+Supported targets include words, characters or chars, and reading time such as `3 min`, `3m`, or `2m 30s`.
+
+Target labels use compact units like `w` for words and `c` for characters. Target bars move from grey to yellow to light green as progress increases, turn green when the target is reached, and turn red at the configured overage threshold. The status bar also shows the current section target as `Target: ...` when the cursor is inside a targeted section.
 
 ## Future ideas
 

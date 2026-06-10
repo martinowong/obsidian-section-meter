@@ -22,6 +22,8 @@ export interface SectionMeterSettings {
   showStatusBarWords: boolean;
   showStatusBarTiming: boolean;
   showStatusBarCharacters: boolean;
+  targetOverageWarningPercent: number;
+  targetProgressLabelStyle: TargetProgressLabelStyle;
 }
 
 export interface HeadingSection {
@@ -39,6 +41,23 @@ export interface SectionMeterSummary extends HeadingSection {
   characterCount: number;
   seconds: number;
   label: string;
+  target: WritingTargetProgress | null;
+}
+
+export type WritingTargetMetric = "words" | "characters" | "reading-time";
+export type TargetProgressLabelStyle = "count" | "percentage";
+
+export interface WritingTarget {
+  metric: WritingTargetMetric;
+  targetValue: number;
+}
+
+export interface WritingTargetProgress extends WritingTarget {
+  currentValue: number;
+  percent: number;
+  isComplete: boolean;
+  isOverageWarning: boolean;
+  label: string;
 }
 
 interface ParsedLine {
@@ -55,6 +74,12 @@ interface HeadingCandidate {
   from: number;
   headingEnd: number;
   contentFrom: number;
+}
+
+interface WritingTargetLine extends WritingTarget {
+  line: number;
+  from: number;
+  to: number;
 }
 
 const DEFAULT_WORDS_PER_MINUTE = 200;
@@ -139,19 +164,26 @@ export function summarizeSectionReadingTimes(
   markdown: string,
   settings: SectionMeterSettings
 ): SectionMeterSummary[] {
-  return parseHeadingSections(markdown).map((section) => {
+  const targets = parseWritingTargetLines(markdown);
+  const sections = parseHeadingSections(markdown);
+
+  return sections.map((section) => {
     const content = markdown.slice(section.contentFrom, section.to);
     const readableText = stripMarkdownToReadableText(content);
     const wordCount = countWords(readableText);
     const characterCount = countCharacters(readableText, settings.countCharactersWithSpaces);
     const seconds = estimateSeconds(wordCount, settings.wordsPerMinute);
+    const target = findSectionTarget(section, sections, targets);
 
     return {
       ...section,
       wordCount,
       characterCount,
       seconds,
-      label: formatReadingTime(wordCount, characterCount, settings)
+      label: formatReadingTime(wordCount, characterCount, settings),
+      target: target
+        ? createWritingTargetProgress(target, wordCount, characterCount, seconds, settings)
+        : null
     };
   });
 }
@@ -159,16 +191,32 @@ export function summarizeSectionReadingTimes(
 export function summarizeNoteReadingTime(
   markdown: string,
   settings: SectionMeterSettings
-): { wordCount: number; characterCount: number; seconds: number; label: string } {
+): {
+  wordCount: number;
+  characterCount: number;
+  seconds: number;
+  label: string;
+  target: WritingTargetProgress | null;
+} {
   const readableText = stripMarkdownToReadableText(markdown);
   const wordCount = countWords(readableText);
   const characterCount = countCharacters(readableText, settings.countCharactersWithSpaces);
+  const noteTarget = findNoteTarget(markdown, parseHeadingSections(markdown));
 
   return {
     wordCount,
     characterCount,
     seconds: estimateSeconds(wordCount, settings.wordsPerMinute),
-    label: formatReadingTime(wordCount, characterCount, settings)
+    label: formatReadingTime(wordCount, characterCount, settings),
+    target: noteTarget
+      ? createWritingTargetProgress(
+        noteTarget,
+        wordCount,
+        characterCount,
+        estimateSeconds(wordCount, settings.wordsPerMinute),
+        settings
+      )
+      : null
   };
 }
 
@@ -189,6 +237,21 @@ export function countReadableWords(markdown: string): number {
 
 export function countReadableCharacters(markdown: string, includeSpaces = true): number {
   return countCharacters(stripMarkdownToReadableText(markdown), includeSpaces);
+}
+
+export function parseWritingTargetLine(line: string): WritingTarget | null {
+  const match = /^ {0,3}Target:\s*(.+?)\s*$/i.exec(line);
+  if (!match) {
+    return null;
+  }
+
+  const value = match[1].trim();
+  const countTarget = parseCountWritingTarget(value);
+  if (countTarget) {
+    return countTarget;
+  }
+
+  return parseReadingTimeWritingTarget(value);
 }
 
 function countWords(readable: string): number {
@@ -271,6 +334,7 @@ export function formatSeconds(totalSeconds: number): string {
 function stripMarkdownToReadableText(markdown: string): string {
   let text = removeFrontmatter(markdown);
   text = removeFencedCodeBlocks(text);
+  text = removeWritingTargetLines(text);
   text = text.replace(/[ \t]*<!--[\s\S]*?-->[ \t]*/g, " ");
   text = text.replace(/^ {0,3}<([A-Za-z][\w-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1>\s*$/gm, "");
   text = text.replace(/^ {0,3}<\/?[A-Za-z][^>]*>\s*$/gm, "");
@@ -292,6 +356,206 @@ function stripMarkdownToReadableText(markdown: string): string {
   text = text.replace(/[=#\[\]{}]/g, "");
   text = text.replace(/<\/?[^>]+>/g, "");
   return text;
+}
+
+function parseWritingTargetLines(markdown: string): WritingTargetLine[] {
+  const lines = splitLines(markdown);
+  const targets: WritingTargetLine[] = [];
+  let inFence: { marker: string; length: number } | null = null;
+  let inFrontmatter = lines[0]?.text.trim() === "---";
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    const trimmed = line.text.trim();
+
+    if (inFrontmatter) {
+      if (index > 0 && (trimmed === "---" || trimmed === "...")) {
+        inFrontmatter = false;
+      }
+      continue;
+    }
+
+    const fence = parseFence(line.text);
+    if (fence) {
+      if (!inFence) {
+        inFence = fence;
+      } else if (fence.marker === inFence.marker && fence.length >= inFence.length) {
+        inFence = null;
+      }
+      continue;
+    }
+
+    if (inFence) {
+      continue;
+    }
+
+    const target = parseWritingTargetLine(line.text);
+    if (!target) {
+      continue;
+    }
+
+    targets.push({
+      ...target,
+      line: index,
+      from: line.from,
+      to: line.to
+    });
+  }
+
+  return targets;
+}
+
+function findNoteTarget(markdown: string, sections: HeadingSection[]): WritingTarget | null {
+  const firstHeadingFrom = sections[0]?.from ?? markdown.length;
+  return parseWritingTargetLines(markdown)
+    .find((target) => target.from < firstHeadingFrom) ?? null;
+}
+
+function findSectionTarget(
+  section: HeadingSection,
+  sections: HeadingSection[],
+  targets: WritingTargetLine[]
+): WritingTarget | null {
+  return targets.find((target) => {
+    if (target.from < section.contentFrom || target.from >= section.to) {
+      return false;
+    }
+
+    const owningSection = findNearestHeadingSectionBefore(target.from, sections);
+    return owningSection?.from === section.from;
+  }) ?? null;
+}
+
+function findNearestHeadingSectionBefore(
+  position: number,
+  sections: HeadingSection[]
+): HeadingSection | null {
+  for (let index = sections.length - 1; index >= 0; index--) {
+    if (sections[index].from < position) {
+      return sections[index];
+    }
+  }
+
+  return null;
+}
+
+function createWritingTargetProgress(
+  target: WritingTarget,
+  wordCount: number,
+  characterCount: number,
+  seconds: number,
+  settings: Pick<SectionMeterSettings, "targetOverageWarningPercent" | "targetProgressLabelStyle">
+): WritingTargetProgress {
+  const currentValue = getTargetCurrentValue(target.metric, wordCount, characterCount, seconds);
+  const percent = target.targetValue > 0
+    ? (currentValue / target.targetValue) * 100
+    : 0;
+  const overageThreshold = target.targetValue * (settings.targetOverageWarningPercent / 100);
+
+  return {
+    ...target,
+    currentValue,
+    percent,
+    isComplete: currentValue >= target.targetValue,
+    isOverageWarning: currentValue >= overageThreshold,
+    label: formatWritingTargetProgressLabel(
+      target.metric,
+      currentValue,
+      target.targetValue,
+      percent,
+      settings.targetProgressLabelStyle
+    )
+  };
+}
+
+function getTargetCurrentValue(
+  metric: WritingTargetMetric,
+  wordCount: number,
+  characterCount: number,
+  seconds: number
+): number {
+  if (metric === "words") {
+    return wordCount;
+  }
+
+  if (metric === "characters") {
+    return characterCount;
+  }
+
+  return seconds;
+}
+
+function formatWritingTargetProgressLabel(
+  metric: WritingTargetMetric,
+  currentValue: number,
+  targetValue: number,
+  percent: number,
+  labelStyle: TargetProgressLabelStyle
+): string {
+  if (labelStyle === "percentage") {
+    return `${Math.round(percent)}%`;
+  }
+
+  if (metric === "reading-time") {
+    return `${formatSeconds(currentValue)} / ${formatSeconds(targetValue)}`;
+  }
+
+  const unit = metric === "words" ? "w" : "c";
+  return `${currentValue} / ${targetValue} ${unit}`;
+}
+
+function parseCountWritingTarget(value: string): WritingTarget | null {
+  const match = /^([0-9][0-9,]*)\s*(words?|chars?|characters?)$/i.exec(value);
+  if (!match) {
+    return null;
+  }
+
+  const targetValue = parseTargetInteger(match[1]);
+  if (targetValue <= 0) {
+    return null;
+  }
+
+  return {
+    metric: /^words?$/i.test(match[2]) ? "words" : "characters",
+    targetValue
+  };
+}
+
+function parseReadingTimeWritingTarget(value: string): WritingTarget | null {
+  const normalized = value.toLowerCase().replace(/,/g, "").trim();
+  const match = /^(\d+)\s*(?:m|min|mins|minute|minutes)(?:\s+(\d+)\s*(?:s|sec|secs|second|seconds))?$/.exec(normalized);
+  if (!match) {
+    return null;
+  }
+
+  const minutes = Number(match[1]);
+  const seconds = match[2] ? Number(match[2]) : 0;
+  const targetValue = (minutes * 60) + seconds;
+
+  return targetValue > 0
+    ? {
+      metric: "reading-time",
+      targetValue
+    }
+    : null;
+}
+
+function parseTargetInteger(value: string): number {
+  const parsed = Number(value.replace(/,/g, ""));
+  return Number.isInteger(parsed) ? parsed : 0;
+}
+
+function removeWritingTargetLines(markdown: string): string {
+  const lines = splitLines(markdown);
+  let result = "";
+
+  for (const line of lines) {
+    if (!parseWritingTargetLine(line.text)) {
+      result += markdown.slice(line.from, line.lineBreakTo);
+    }
+  }
+
+  return result;
 }
 
 function removeFrontmatter(markdown: string): string {

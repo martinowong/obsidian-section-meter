@@ -19,6 +19,7 @@ import {
   SectionMeterSettings,
   SectionMeterSummary,
   LegacyLabelStyle,
+  WritingTargetProgress,
   formatReadingTime,
   shouldShowSummary,
   summarizeNoteReadingTime,
@@ -38,11 +39,17 @@ const DEFAULT_SETTINGS: SectionMeterSettings = {
   showStatusBarSelectionStats: true,
   showStatusBarWords: true,
   showStatusBarTiming: false,
-  showStatusBarCharacters: false
+  showStatusBarCharacters: false,
+  targetOverageWarningPercent: 125,
+  targetProgressLabelStyle: "count"
 };
 const MIN_WORDS_PER_MINUTE = 100;
 const MAX_WORDS_PER_MINUTE = 500;
 const WORDS_PER_MINUTE_STEP = 10;
+const MIN_TARGET_OVERAGE_WARNING_PERCENT = 100;
+const MAX_TARGET_OVERAGE_WARNING_PERCENT = 200;
+const TARGET_OVERAGE_WARNING_PERCENT_STEP = 5;
+const SELECTION_BADGE_UPDATE_DELAY_MS = 220;
 
 type StoredSettings = Partial<SectionMeterSettings> & {
   labelStyle?: LegacyLabelStyle;
@@ -140,10 +147,21 @@ export default class SectionMeterPlugin extends Plugin {
       return;
     }
 
+    const editorView = getEditorView(activeView);
+    if (editorView) {
+      this.updateStatusBar(getStatusBarStats(
+        editorView,
+        this.settings,
+        summarizeSectionReadingTimes(editorView.state.doc.toString(), this.settings)
+      ));
+      return;
+    }
+
     const noteStats = summarizeNoteReadingTime(activeView.getViewData(), this.settings);
     this.updateStatusBar({
       note: noteStats,
-      selection: null
+      selection: null,
+      sectionTarget: null
     });
   }
 
@@ -168,6 +186,7 @@ export default class SectionMeterPlugin extends Plugin {
       summary.wordCount,
       summary.characterCount,
       summary.seconds,
+      summary.target,
       "section-meter-title-badge",
       false,
       "Whole note stats"
@@ -181,24 +200,42 @@ export default class SectionMeterPlugin extends Plugin {
       return;
     }
 
-    const parts: string[] = [];
+    this.statusBarItem.empty();
+    const partLabels: string[] = [];
     if (this.settings.showStatusBarNoteStats && status?.note) {
-      parts.push(`Note: ${formatStatusBarStats(status.note, this.settings)}`);
+      const notePart = createStatusBarStatsEl("Note", status.note, this.settings);
+      this.statusBarItem.appendChild(notePart);
+      partLabels.push(`Note: ${formatStatusBarStats(status.note, this.settings)}`);
     }
 
     if (this.settings.showStatusBarSelectionStats && status?.selection) {
-      parts.push(`Selection: ${formatStatusBarStats(status.selection, this.settings)}`);
+      if (partLabels.length > 0) {
+        this.statusBarItem.appendChild(createStatusBarSeparatorEl());
+      }
+
+      const selectionPart = createStatusBarStatsEl("Selection", status.selection, this.settings);
+      this.statusBarItem.appendChild(selectionPart);
+      partLabels.push(`Selection: ${formatStatusBarStats(status.selection, this.settings)}`);
     }
 
-    if (parts.length === 0) {
+    if (status?.sectionTarget) {
+      if (partLabels.length > 0) {
+        this.statusBarItem.appendChild(createStatusBarSeparatorEl());
+      }
+
+      const targetPart = createStatusBarTargetEl(status.sectionTarget);
+      this.statusBarItem.appendChild(targetPart);
+      partLabels.push(formatTargetProgressForStatus(status.sectionTarget));
+    }
+
+    if (partLabels.length === 0) {
       this.clearStatusBar();
       return;
     }
 
-    this.statusBarItem.textContent = parts.join(" | ");
     this.statusBarItem.setAttribute(
       "aria-label",
-      parts.join(". ")
+      partLabels.join(". ")
     );
     this.statusBarItem.setAttribute("title", "Section Meter");
     this.statusBarItem.classList.remove("section-meter-status-bar-hidden");
@@ -223,6 +260,9 @@ function createSectionMeterExtension(
   class SectionMeterViewPlugin implements PluginValue {
     decorations: DecorationSet;
     private summaries: SectionMeterSummary[];
+    private selectionBadgeUpdateTimer: number | null = null;
+    private selectionBadgeRefreshQueued = false;
+    private applySelectionBadgeOverride = true;
 
     constructor(view: EditorView) {
       this.summaries = summarizeSectionReadingTimes(view.state.doc.toString(), getSettings());
@@ -234,20 +274,49 @@ function createSectionMeterExtension(
         this.summaries = summarizeSectionReadingTimes(update.state.doc.toString(), getSettings());
       }
 
-      if (update.docChanged || update.viewportChanged || update.selectionSet || update.focusChanged) {
+      let shouldRebuildDecorations = update.docChanged || update.viewportChanged;
+      if (this.selectionBadgeRefreshQueued) {
+        this.selectionBadgeRefreshQueued = false;
+        this.applySelectionBadgeOverride = true;
+        shouldRebuildDecorations = true;
+      }
+
+      if (update.selectionSet || update.focusChanged) {
+        this.applySelectionBadgeOverride = false;
+        this.queueSelectionBadgeRefresh(update.view);
+        shouldRebuildDecorations = true;
+      }
+
+      if (shouldRebuildDecorations) {
         this.decorations = this.buildDecorations(update.view);
       }
     }
 
     destroy() {
+      if (this.selectionBadgeUpdateTimer !== null) {
+        window.clearTimeout(this.selectionBadgeUpdateTimer);
+      }
+
       this.summaries = [];
+    }
+
+    private queueSelectionBadgeRefresh(view: EditorView) {
+      if (this.selectionBadgeUpdateTimer !== null) {
+        window.clearTimeout(this.selectionBadgeUpdateTimer);
+      }
+
+      this.selectionBadgeUpdateTimer = window.setTimeout(() => {
+        this.selectionBadgeUpdateTimer = null;
+        this.selectionBadgeRefreshQueued = true;
+        view.dispatch({});
+      }, SELECTION_BADGE_UPDATE_DELAY_MS);
     }
 
     private buildDecorations(view: EditorView): DecorationSet {
       const builder = new RangeSetBuilder<Decoration>();
       const settings = getSettings();
-      const statusBarStats = getStatusBarStats(view, settings);
-      const selectionOverride = statusBarStats.selection
+      const statusBarStats = getStatusBarStats(view, settings, this.summaries);
+      const selectionOverride = this.applySelectionBadgeOverride && statusBarStats.selection
         ? getHeadingSelectionOverride(view, this.summaries, statusBarStats.selection)
         : null;
       updateStatusBar(statusBarStats);
@@ -258,7 +327,7 @@ function createSectionMeterExtension(
         }
 
         const isSelectionTarget = selectionOverride?.headingFrom === summary.from;
-        if (!isSelectionTarget && !shouldShowSummary(summary, settings)) {
+        if (!isSelectionTarget && !summary.target && !shouldShowSummary(summary, settings)) {
           continue;
         }
 
@@ -268,6 +337,7 @@ function createSectionMeterExtension(
           ? selectionOverride.characterCount
           : summary.characterCount;
         const seconds = isSelectionTarget ? selectionOverride.seconds : summary.seconds;
+        const target = isSelectionTarget ? null : summary.target;
         const scopeLabel = isSelectionTarget ? "Selection stats" : "Heading section stats";
 
         builder.add(
@@ -279,6 +349,7 @@ function createSectionMeterExtension(
               wordCount,
               characterCount,
               seconds,
+              target,
               scopeLabel
             ),
             side: 1
@@ -301,6 +372,7 @@ class ReadingTimeWidget extends WidgetType {
     private readonly wordCount: number,
     private readonly characterCount: number,
     private readonly seconds: number,
+    private readonly target: WritingTargetProgress | null,
     private readonly scopeLabel: string
   ) {
     super();
@@ -311,6 +383,7 @@ class ReadingTimeWidget extends WidgetType {
       && this.wordCount === other.wordCount
       && this.characterCount === other.characterCount
       && this.seconds === other.seconds
+      && targetProgressesEqual(this.target, other.target)
       && this.scopeLabel === other.scopeLabel;
   }
 
@@ -320,6 +393,7 @@ class ReadingTimeWidget extends WidgetType {
       this.wordCount,
       this.characterCount,
       this.seconds,
+      this.target,
       "",
       true,
       this.scopeLabel
@@ -450,6 +524,38 @@ class SectionMeterSettingTab extends PluginSettingTab {
         }));
 
     new Setting(containerEl)
+      .setName("Writing targets")
+      .setHeading();
+
+    new Setting(containerEl)
+      .setName("Overage warning threshold")
+      .setDesc("Turn target progress red when it reaches this percentage of the target.")
+      .addSlider((slider) => slider
+        .setLimits(
+          MIN_TARGET_OVERAGE_WARNING_PERCENT,
+          MAX_TARGET_OVERAGE_WARNING_PERCENT,
+          TARGET_OVERAGE_WARNING_PERCENT_STEP
+        )
+        .setValue(this.plugin.settings.targetOverageWarningPercent)
+        .setDynamicTooltip()
+        .onChange(async (value) => {
+          this.plugin.settings.targetOverageWarningPercent = value;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName("Target label")
+      .setDesc("Show target progress as a count or as a percentage.")
+      .addDropdown((dropdown) => dropdown
+        .addOption("count", "Count (n/N)")
+        .addOption("percentage", "Percentage")
+        .setValue(this.plugin.settings.targetProgressLabelStyle)
+        .onChange(async (value) => {
+          this.plugin.settings.targetProgressLabelStyle = normalizeTargetProgressLabelStyle(value);
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
       .setName("Status bar")
       .setHeading();
 
@@ -510,7 +616,10 @@ class SectionMeterSettingTab extends PluginSettingTab {
   }
 }
 
-type SelectionStats = Pick<SectionMeterSummary, "wordCount" | "characterCount" | "seconds" | "label">;
+type SelectionStats = Pick<
+  SectionMeterSummary,
+  "wordCount" | "characterCount" | "seconds" | "label" | "target"
+>;
 
 type SelectionOverride = SelectionStats & {
   headingFrom: number;
@@ -519,6 +628,7 @@ type SelectionOverride = SelectionStats & {
 type StatusBarStats = {
   note: SelectionStats;
   selection: SelectionStats | null;
+  sectionTarget: WritingTargetProgress | null;
 };
 
 function isPositionVisible(
@@ -530,14 +640,17 @@ function isPositionVisible(
 
 function getStatusBarStats(
   view: EditorView,
-  settings: SectionMeterSettings
+  settings: SectionMeterSettings,
+  summaries: SectionMeterSummary[]
 ): StatusBarStats {
   const note = summarizeNoteReadingTime(view.state.doc.toString(), settings);
+  const sectionTarget = getSectionTargetAtSelection(view, summaries);
   const selectedRanges = view.state.selection.ranges.filter((range) => !range.empty);
   if (selectedRanges.length === 0) {
     return {
       note,
-      selection: null
+      selection: null,
+      sectionTarget
     };
   }
 
@@ -549,14 +662,37 @@ function getStatusBarStats(
   if (!selectedText) {
     return {
       note,
-      selection: null
+      selection: null,
+      sectionTarget
+    };
+  }
+
+  const selection = summarizeNoteReadingTime(selectedText, settings);
+  if (selection.wordCount === 0 && selection.characterCount === 0) {
+    return {
+      note,
+      selection: null,
+      sectionTarget
     };
   }
 
   return {
     note,
-    selection: summarizeNoteReadingTime(selectedText, settings)
+    selection: {
+      ...selection,
+      target: null
+    },
+    sectionTarget
   };
+}
+
+function getSectionTargetAtSelection(
+  view: EditorView,
+  summaries: SectionMeterSummary[]
+): WritingTargetProgress | null {
+  const position = Math.min(...view.state.selection.ranges.map((range) => range.from));
+  const targetSection = getSelectionTargetHeading(summaries, position, position);
+  return targetSection?.target ?? null;
 }
 
 function getHeadingSelectionOverride(
@@ -581,7 +717,8 @@ function getHeadingSelectionOverride(
     wordCount: selectionStats.wordCount,
     characterCount: selectionStats.characterCount,
     seconds: selectionStats.seconds,
-    label: selectionStats.label
+    label: selectionStats.label,
+    target: null
   };
 }
 
@@ -632,12 +769,35 @@ function normalizeSettings(settings: StoredSettings): SectionMeterSettings {
       settings.showStatusBarNoteStats ?? DEFAULT_SETTINGS.showStatusBarNoteStats,
     showStatusBarSelectionStats:
       settings.showStatusBarSelectionStats ?? DEFAULT_SETTINGS.showStatusBarSelectionStats,
-    ...statusBarDisplaySettings
+    ...statusBarDisplaySettings,
+    targetOverageWarningPercent: normalizeTargetOverageWarningPercent(
+      settings.targetOverageWarningPercent
+    ),
+    targetProgressLabelStyle: normalizeTargetProgressLabelStyle(
+      settings.targetProgressLabelStyle
+    )
   };
 }
 
 function formatStatusBarStats(
   stats: SelectionStats,
+  settings: SectionMeterSettings
+): string {
+  const labels = [formatConfiguredStats(stats, settings)];
+
+  if (stats.target) {
+    labels.push(formatTargetProgressForStatus(stats.target));
+  }
+
+  return labels.join(" - ");
+}
+
+function formatTargetProgressForStatus(target: WritingTargetProgress): string {
+  return `Target: ${target.label}`;
+}
+
+function formatConfiguredStats(
+  stats: Pick<SelectionStats, "wordCount" | "characterCount" | "seconds">,
   settings: SectionMeterSettings
 ): string {
   return formatReadingTime(stats.wordCount, stats.characterCount, {
@@ -654,16 +814,31 @@ function createReadingTimeBadge(
   wordCount: number,
   characterCount: number,
   seconds: number,
+  target: WritingTargetProgress | null,
   extraClass = "",
   selectOnClick = false,
   scopeLabel = "Reading stats"
 ): HTMLElement {
   const badge = document.createElement("span");
   badge.className = ["section-meter-badge", extraClass].filter(Boolean).join(" ");
-  badge.textContent = label;
+  const labelEl = document.createElement("span");
+  labelEl.className = "section-meter-badge-label";
+  labelEl.textContent = label;
+  badge.appendChild(labelEl);
+
+  if (target) {
+    badge.classList.add("section-meter-target-badge");
+    badge.classList.add(getTargetProgressStateClass(target));
+    badge.appendChild(createInlineTargetSeparatorEl());
+    badge.appendChild(createTargetLabelEl(target));
+    badge.appendChild(createTargetProgressEl(target));
+  }
+
   badge.setAttribute(
     "aria-label",
-    `${scopeLabel}: ${wordCount} ${wordCount === 1 ? "word" : "words"}, ${characterCount} ${characterCount === 1 ? "character" : "characters"}, ${formatDurationForLabel(seconds)} read`
+    target
+      ? `${scopeLabel}: ${label}, target ${target.label}, ${Math.round(target.percent)}% of target`
+      : `${scopeLabel}: ${wordCount} ${wordCount === 1 ? "word" : "words"}, ${characterCount} ${characterCount === 1 ? "character" : "characters"}, ${formatDurationForLabel(seconds)} read`
   );
   badge.setAttribute("title", scopeLabel);
   badge.setAttribute("spellcheck", "false");
@@ -680,6 +855,100 @@ function createReadingTimeBadge(
   }
 
   return badge;
+}
+
+function createStatusBarStatsEl(
+  scopeLabel: string,
+  stats: SelectionStats,
+  settings: SectionMeterSettings
+): HTMLElement {
+  const wrapper = document.createElement("span");
+  wrapper.className = "section-meter-status-bar-part";
+
+  const labelEl = document.createElement("span");
+  labelEl.textContent = `${scopeLabel}: ${formatConfiguredStats(stats, settings)}`;
+  wrapper.appendChild(labelEl);
+
+  if (stats.target) {
+    wrapper.classList.add("section-meter-status-bar-target");
+    wrapper.appendChild(createInlineTargetSeparatorEl());
+    const targetTextEl = createTargetLabelEl(stats.target);
+    targetTextEl.classList.add("section-meter-status-bar-target-label");
+    targetTextEl.textContent = formatTargetProgressForStatus(stats.target);
+    wrapper.appendChild(targetTextEl);
+    wrapper.appendChild(createTargetProgressEl(stats.target));
+  }
+
+  return wrapper;
+}
+
+function createStatusBarTargetEl(target: WritingTargetProgress): HTMLElement {
+  const wrapper = document.createElement("span");
+  wrapper.className = "section-meter-status-bar-part section-meter-status-bar-target";
+
+  const targetTextEl = createTargetLabelEl(target);
+  targetTextEl.classList.add("section-meter-status-bar-target-label");
+  targetTextEl.textContent = formatTargetProgressForStatus(target);
+  wrapper.appendChild(targetTextEl);
+  wrapper.appendChild(createTargetProgressEl(target));
+
+  return wrapper;
+}
+
+function createStatusBarSeparatorEl(): HTMLElement {
+  const separator = document.createElement("span");
+  separator.className = "section-meter-status-bar-separator";
+  separator.textContent = "|";
+  return separator;
+}
+
+function createTargetLabelEl(target: WritingTargetProgress): HTMLElement {
+  const labelEl = document.createElement("span");
+  labelEl.className = "section-meter-target-label";
+  labelEl.textContent = target.label;
+  return labelEl;
+}
+
+function createInlineTargetSeparatorEl(): HTMLElement {
+  const separator = document.createElement("span");
+  separator.className = "section-meter-target-separator";
+  separator.textContent = "|";
+  return separator;
+}
+
+function createTargetProgressEl(target: WritingTargetProgress): HTMLElement {
+  const progressEl = document.createElement("span");
+  progressEl.className = [
+    "section-meter-target-progress",
+    getTargetProgressStateClass(target)
+  ].join(" ");
+  progressEl.setAttribute("aria-hidden", "true");
+
+  const fillEl = document.createElement("span");
+  fillEl.className = "section-meter-target-progress-fill";
+  fillEl.style.width = `${Math.min(100, Math.max(0, target.percent))}%`;
+  progressEl.appendChild(fillEl);
+  return progressEl;
+}
+
+function getTargetProgressStateClass(target: WritingTargetProgress): string {
+  if (target.isOverageWarning) {
+    return "section-meter-target-overage";
+  }
+
+  if (target.isComplete) {
+    return "section-meter-target-complete";
+  }
+
+  if (target.percent >= 80) {
+    return "section-meter-target-close";
+  }
+
+  if (target.percent >= 50) {
+    return "section-meter-target-mid";
+  }
+
+  return "section-meter-target-start";
 }
 
 function stopEditorMouseHandling(event: Event) {
@@ -719,6 +988,23 @@ function formatDurationForLabel(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes} ${minutes === 1 ? "minute" : "minutes"} ${seconds} ${seconds === 1 ? "second" : "seconds"}`;
+}
+
+function targetProgressesEqual(
+  first: WritingTargetProgress | null,
+  second: WritingTargetProgress | null
+): boolean {
+  if (!first || !second) {
+    return first === second;
+  }
+
+  return first.metric === second.metric
+    && first.currentValue === second.currentValue
+    && first.targetValue === second.targetValue
+    && first.percent === second.percent
+    && first.isComplete === second.isComplete
+    && first.isOverageWarning === second.isOverageWarning
+    && first.label === second.label;
 }
 
 function normalizeDisplaySettings(settings: StoredSettings) {
@@ -819,6 +1105,21 @@ function normalizeWordsPerMinute(value: unknown): number {
   const parsed = parsePositiveInteger(value, DEFAULT_SETTINGS.wordsPerMinute);
   const stepped = Math.round(parsed / WORDS_PER_MINUTE_STEP) * WORDS_PER_MINUTE_STEP;
   return Math.min(MAX_WORDS_PER_MINUTE, Math.max(MIN_WORDS_PER_MINUTE, stepped));
+}
+
+function normalizeTargetOverageWarningPercent(value: unknown): number {
+  const parsed = parsePositiveInteger(value, DEFAULT_SETTINGS.targetOverageWarningPercent);
+  const stepped = Math.round(parsed / TARGET_OVERAGE_WARNING_PERCENT_STEP)
+    * TARGET_OVERAGE_WARNING_PERCENT_STEP;
+
+  return Math.min(
+    MAX_TARGET_OVERAGE_WARNING_PERCENT,
+    Math.max(MIN_TARGET_OVERAGE_WARNING_PERCENT, stepped)
+  );
+}
+
+function normalizeTargetProgressLabelStyle(value: unknown): SectionMeterSettings["targetProgressLabelStyle"] {
+  return value === "percentage" ? "percentage" : DEFAULT_SETTINGS.targetProgressLabelStyle;
 }
 
 function parseNonNegativeInteger(value: unknown, fallback: number): number {

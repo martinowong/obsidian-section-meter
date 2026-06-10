@@ -5,6 +5,7 @@ import {
   formatReadingTime,
   formatSeconds,
   parseHeadingSections,
+  parseWritingTargetLine,
   summarizeNoteReadingTime,
   summarizeSectionReadingTimes
 } from "./readingTime";
@@ -22,7 +23,9 @@ const settings = {
   showStatusBarSelectionStats: true,
   showStatusBarWords: true,
   showStatusBarTiming: false,
-  showStatusBarCharacters: false
+  showStatusBarCharacters: false,
+  targetOverageWarningPercent: 125,
+  targetProgressLabelStyle: "count" as const
 };
 
 describe("parseHeadingSections", () => {
@@ -151,6 +154,13 @@ describe("countReadableWords", () => {
 
     expect(countReadableCharacters(markdown)).toBe(24);
   });
+
+  it("does not count valid target lines as readable prose", () => {
+    const markdown = "Target: 1,200 words\nVisible words\nTarget: not valid";
+
+    expect(countReadableWords(markdown)).toBe(5);
+    expect(countReadableCharacters(markdown)).toBe(31);
+  });
 });
 
 describe("formatReadingTime", () => {
@@ -242,7 +252,8 @@ describe("summarizeNoteReadingTime", () => {
       wordCount: 4,
       characterCount: 25,
       seconds: 2,
-      label: "4 words, 0m 02s"
+      label: "4 words, 0m 02s",
+      target: null
     });
   });
 
@@ -253,5 +264,155 @@ describe("summarizeNoteReadingTime", () => {
     });
 
     expect(summary.characterCount).toBe(22);
+  });
+});
+
+describe("parseWritingTargetLine", () => {
+  it("parses word and character targets", () => {
+    expect(parseWritingTargetLine("Target: 250 words")).toEqual({
+      metric: "words",
+      targetValue: 250
+    });
+    expect(parseWritingTargetLine("target: 1,800 chars")).toEqual({
+      metric: "characters",
+      targetValue: 1800
+    });
+    expect(parseWritingTargetLine("Target: 1 character")).toEqual({
+      metric: "characters",
+      targetValue: 1
+    });
+  });
+
+  it("parses reading-time targets", () => {
+    expect(parseWritingTargetLine("Target: 3 min")).toEqual({
+      metric: "reading-time",
+      targetValue: 180
+    });
+    expect(parseWritingTargetLine("Target: 3m")).toEqual({
+      metric: "reading-time",
+      targetValue: 180
+    });
+    expect(parseWritingTargetLine("Target: 2m 30s")).toEqual({
+      metric: "reading-time",
+      targetValue: 150
+    });
+  });
+
+  it("ignores invalid or partial target lines", () => {
+    expect(parseWritingTargetLine("Target: someday")).toBeNull();
+    expect(parseWritingTargetLine("- Target: 250 words")).toBeNull();
+    expect(parseWritingTargetLine("Paragraph target: 250 words")).toBeNull();
+  });
+});
+
+describe("writing target progress", () => {
+  it("applies a target before the first heading to the whole note", () => {
+    const summary = summarizeNoteReadingTime(
+      "Target: 4 words\n# Title\nReadable note words",
+      settings
+    );
+
+    expect(summary.wordCount).toBe(4);
+    expect(summary.target).toMatchObject({
+      metric: "words",
+      currentValue: 4,
+      targetValue: 4,
+      percent: 100,
+      isComplete: true,
+      isOverageWarning: false,
+      label: "4 / 4 w"
+    });
+  });
+
+  it("applies section targets to the nearest preceding heading", () => {
+    const markdown = [
+      "# One",
+      "Target: 4 words",
+      "alpha beta",
+      "## Child",
+      "Target: 10 characters",
+      "gamma"
+    ].join("\n");
+    const summaries = summarizeSectionReadingTimes(markdown, settings);
+
+    expect(summaries.find((summary) => summary.title === "One")?.target).toMatchObject({
+      metric: "words",
+      currentValue: 4,
+      targetValue: 4,
+      label: "4 / 4 w"
+    });
+    expect(summaries.find((summary) => summary.title === "Child")?.target).toMatchObject({
+      metric: "characters",
+      currentValue: 5,
+      targetValue: 10,
+      label: "5 / 10 c"
+    });
+  });
+
+  it("includes child content in parent target progress", () => {
+    const markdown = [
+      "# Parent",
+      "Target: 6 words",
+      "parent words",
+      "## Child",
+      "child words here"
+    ].join("\n");
+    const parent = summarizeSectionReadingTimes(markdown, settings)
+      .find((summary) => summary.title === "Parent");
+
+    expect(parent?.wordCount).toBe(6);
+    expect(parent?.target).toMatchObject({
+      currentValue: 6,
+      targetValue: 6,
+      isComplete: true
+    });
+  });
+
+  it("supports reading-time target progress", () => {
+    const markdown = [
+      "# Timed",
+      "Target: 1m",
+      Array.from({ length: 200 }, (_, index) => `word${index}`).join(" ")
+    ].join("\n");
+    const timed = summarizeSectionReadingTimes(markdown, settings)[0];
+
+    expect(timed.seconds).toBe(60);
+    expect(timed.target).toMatchObject({
+      metric: "reading-time",
+      currentValue: 60,
+      targetValue: 60,
+      percent: 100,
+      label: "1m 00s / 1m 00s"
+    });
+  });
+
+  it("marks progress over the configured threshold as an overage warning", () => {
+    const warning = summarizeSectionReadingTimes("# Long\nTarget: 4 words\none two three four five", settings)[0];
+    const complete = summarizeSectionReadingTimes("# Exact\nTarget: 4 words\none two three four", settings)[0];
+
+    expect(complete.target).toMatchObject({
+      percent: 100,
+      isComplete: true,
+      isOverageWarning: false
+    });
+    expect(warning.target).toMatchObject({
+      percent: 125,
+      isComplete: true,
+      isOverageWarning: true
+    });
+  });
+
+  it("can show target progress as a percentage", () => {
+    const summary = summarizeSectionReadingTimes("# Draft\nTarget: 8 words\none two three four", {
+      ...settings,
+      targetProgressLabelStyle: "percentage"
+    })[0];
+
+    expect(summary.target).toMatchObject({
+      currentValue: 4,
+      targetValue: 8,
+      percent: 50,
+      label: "50%"
+    });
   });
 });

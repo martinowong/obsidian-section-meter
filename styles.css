@@ -1,6 +1,7 @@
 .section-meter-badge {
   display: inline-flex;
   align-items: center;
+  gap: 0.35em;
   margin-inline-start: 0.5em;
   padding: 0.05em 0.4em;
   border: 1px solid var(--background-modifier-border);
@@ -16,6 +17,60 @@
   user-select: text;
   -webkit-user-select: text;
   cursor: text;
+}
+
+.section-meter-badge-label {
+  min-inline-size: 0;
+}
+
+.section-meter-target-label {
+  color: var(--text-muted);
+}
+
+.section-meter-target-separator {
+  color: var(--text-faint);
+}
+
+.section-meter-target-badge {
+  color: var(--text-normal);
+}
+
+.section-meter-target-progress {
+  display: inline-flex;
+  inline-size: 3.5em;
+  block-size: 0.35em;
+  overflow: hidden;
+  flex: none;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+}
+
+.section-meter-target-progress-fill {
+  display: block;
+  block-size: 100%;
+  border-radius: inherit;
+  background: var(--text-faint);
+}
+
+.section-meter-target-start .section-meter-target-progress-fill {
+  background: var(--text-faint);
+}
+
+.section-meter-target-mid .section-meter-target-progress-fill {
+  background: var(--color-yellow);
+}
+
+.section-meter-target-close .section-meter-target-progress-fill {
+  background: var(--color-green);
+  opacity: 0.62;
+}
+
+.section-meter-target-complete .section-meter-target-progress-fill {
+  background: var(--color-green);
+}
+
+.section-meter-target-overage .section-meter-target-progress-fill {
+  background: var(--color-red);
 }
 
 .cm-content .section-meter-badge,
@@ -93,6 +148,33 @@ body.is-mobile .section-meter-title-badge,
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
   line-height: 1.35;
+}
+
+.section-meter-status-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.section-meter-status-bar-hidden {
+  display: none;
+}
+
+.section-meter-status-bar-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  white-space: nowrap;
+}
+
+.section-meter-status-bar-separator,
+.section-meter-status-bar-target-label {
+  color: var(--text-muted);
+}
+
+.section-meter-status-bar .section-meter-target-progress {
+  inline-size: 2.75em;
+  block-size: 0.3em;
 }
 
 .section-meter-status-bar-selection {

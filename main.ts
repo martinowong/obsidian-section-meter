@@ -12,7 +12,8 @@ import {
   App,
   MarkdownView,
   Plugin,
-  PluginSettingTab
+  PluginSettingTab,
+  SettingGroup
 } from "obsidian";
 import type {
   SettingDefinition,
@@ -418,6 +419,27 @@ class SectionMeterSettingTab extends PluginSettingTab {
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
+    return this.getSettingGroups();
+  }
+
+  display(): void {
+    this.containerEl.empty();
+
+    for (const groupDefinition of this.getSettingGroups()) {
+      const group = new SettingGroup(this.containerEl);
+      if (groupDefinition.heading) {
+        group.setHeading(groupDefinition.heading);
+      }
+
+      for (const item of groupDefinition.items ?? []) {
+        if ("render" in item && typeof item.render === "function") {
+          group.addSetting((setting) => item.render(setting, group));
+        }
+      }
+    }
+  }
+
+  private getSettingGroups(): SettingDefinitionGroup[] {
     return [
       this.getBadgeDisplaySettings(),
       this.getCountingRuleSettings(),
@@ -669,7 +691,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
             .onChange(async (value) => {
               await onChange(value);
               if (options.updateAfterChange) {
-                this.update();
+                this.display();
               }
             }));
       }
@@ -697,7 +719,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
             .onChange(async (value) => {
               await onChange(value);
               if (options.updateAfterChange) {
-                this.update();
+                this.display();
               }
             }));
       }

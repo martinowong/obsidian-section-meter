@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.5
+
+- Restored support for the public Obsidian release line by making the settings screen compatible with Obsidian 1.11 and newer.
+
 ## 0.11.4
 
 - Kept parent-heading writing targets visible in the status bar while the cursor is inside nested headings.

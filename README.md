@@ -1,99 +1,132 @@
 # Section Meter
 
-Section Meter is an Obsidian plugin that shows reading-time badges beside markdown headings and the note title in the editor.
+Section Meter is an Obsidian plugin that shows useful writing statistics beside your note title and headings.
 
-Each heading counts the readable content in its section. A section starts at the heading and ends before the next heading of the same or higher rank, so parent headings include the text in lower-rank child headings.
+See the word count, character count, and estimated reading time for each section without leaving the editor. You can also add writing targets and follow your progress as you write.
 
-Vibecoded with Codex by Martino Wong.
+Created by Martino Wong with Codex.
+
+## How it works
+
+Each heading gets a small badge showing statistics for the section beneath it.
+
+A section continues until the next heading of the same or a higher level. This means a parent heading includes everything inside its smaller subheadings.
+
+For example:
+
+```md
+# Chapter one
+
+Introduction...
+
+## First scene
+
+Scene text...
+
+## Second scene
+
+More text...
+```
+
+The badge beside **Chapter one** counts the introduction and both scenes. Each scene heading counts only its own section.
 
 ## Features
 
-- Editor badges for ATX headings from `#` through `######`.
-- A note-title badge showing whole-note counts and reading time.
-- Whole-note stats in Obsidian's bottom status bar.
-- While text is selected, the nearest heading badge above the selection shows selected-text stats.
-- Selected-text stats can appear in Obsidian's bottom status bar.
-- Parent sections include nested child-heading content.
-- Readable prose counting that excludes frontmatter, code blocks, inline code, embeds, comments, and HTML.
-- Minute-and-second timing labels.
-- Selectable badge text.
-- Toggle controls for word count, timing, and character count labels.
-- Separate status-bar toggles for whole-note stats, selected-text stats, words, timing, and characters.
-- Character counts include spaces by default, with a toggle to exclude spaces.
-- Configurable single-character separator between enabled label parts.
-- Visible `Target: ...` lines for whole-note and per-heading writing goals.
-- Target progress badges with compact target labels and a compact bar while keeping the normal section stats visible.
-- A reading-speed slider with guidance for read-aloud, typical, and fast reading paces.
-- A configurable overage warning threshold for writing targets.
-- A target label setting for count labels such as `120 / 250 w` or percentage labels such as `48%`.
-- Settings for minimum word count and empty-section visibility.
+- Statistics beside headings from `#` to `######`
+- Whole-note statistics beside the note title
+- Word, character, and estimated reading-time counts
+- Whole-note and selected-text statistics in the status bar
+- Section statistics for selected text
+- Writing targets for a whole note or individual sections
+- Progress bars that make targets easy to follow
+- Adjustable reading speed
+- Optional spaces in character counts
+- Customizable labels and separators
+- Options to hide empty or very short sections
+- Fast, local counting with no text sent anywhere
+
+Section Meter focuses on readable prose. It leaves out frontmatter, code blocks, inline code, embeds, comments, and HTML when calculating statistics.
 
 ## Writing targets
 
-Add a visible `Target: ...` line before the first heading for a whole-note target, or inside a heading section for that section's target. Target lines are ignored by the word, character, and reading-time counts.
+Add a `Target:` line to set a writing goal.
+
+Place it before the first heading to create a target for the whole note:
 
 ```md
 Target: 1200 words
 
-# Draft
+# My draft
 
-Target: 250 words
-Section text...
-
-## Shorter subsection
-
-Target: 1800 characters
-More text...
-
-## Timed section
-
-Target: 3 min
-More text...
+Start writing here...
 ```
 
-Supported targets include words, characters or chars, and reading time such as `3 min`, `3m`, or `2m 30s`.
+Place it inside a section to create a target for that heading:
 
-Target labels use compact units like `w` for words and `c` for characters. Target bars move from grey to yellow to light green as progress increases, turn green when the target is reached, and turn red at the configured overage threshold. The status bar also shows the current section target as `Target: ...` when the cursor is inside a targeted section.
+```md
+# Introduction
 
-## Future ideas
+Target: 250 words
 
-- Optional reading-view badges in addition to editor badges.
-- Per-note or per-folder words-per-minute overrides.
-- A click-to-copy action for heading badges if CodeMirror text selection remains awkward.
-- More precise rendered-text counting using Obsidian's markdown parser.
-- Optional compact labels such as `1817 chars` instead of `1817 characters`.
+Introduction text...
 
-## Known Limitations
+## Background
 
-- Section Meter is editor-only for now; reading view support is deferred.
-- Counts are based on fast local Markdown cleanup rather than Obsidian's full Markdown renderer.
-- Dynamic plugin output from tools such as Dataview, rendered transclusions, and complex math may not match exactly what appears on screen.
+Target: 1800 characters
 
-## License
+Background text...
+```
 
-Section Meter is released under the MIT License.
+You can create targets using:
 
-Section Meter is an independent community plugin and is not affiliated with, endorsed by, or sponsored by Obsidian.
+- Words: `Target: 250 words`
+- Characters: `Target: 1800 characters`
+- Reading time: `Target: 3 min`, `Target: 3m`, or `Target: 2m 30s`
 
-## Manual Installation
+Target lines are not included in your statistics.
 
-Download or build the plugin files, then copy these files into `.obsidian/plugins/section-meter` in your vault:
+A target on a parent heading covers its complete section, including smaller subheadings. It remains visible in the status bar while you work inside those subheadings. If a smaller section has its own target, that target takes priority while you are inside it.
+
+Progress bars change colour as you approach your target. They turn green when the target is reached and red when you pass the configured overage warning.
+
+## Customization
+
+Section Meter's settings let you choose:
+
+- Which statistics appear beside headings
+- Which statistics appear in the status bar
+- Whether character counts include spaces
+- Your preferred reading speed
+- Count-based or percentage-based target labels
+- When target overage warnings appear
+- The minimum section size required to show a badge
+- Whether badges appear for empty sections
+
+## Limitations
+
+Section Meter currently works in the editor, not Reading view.
+
+Counts are calculated using fast Markdown cleanup rather than Obsidian's complete renderer. Content generated by plugins such as Dataview, rendered transclusions, and complex mathematics may therefore produce slightly different results from what appears on screen.
+
+## Manual installation
+
+Download or build the plugin, then copy these files into `.obsidian/plugins/section-meter` inside your vault:
 
 - `main.js`
 - `manifest.json`
 - `styles.css`
 
-Restart Obsidian or reload plugins, then enable Section Meter from Community plugins.
+Restart Obsidian—or reload your installed plugins—then enable **Section Meter** under **Community plugins**.
 
 ## Development
 
-Install dependencies:
+Install the dependencies:
 
 ```sh
 npm install
 ```
 
-Run tests:
+Run the tests:
 
 ```sh
 npm test
@@ -105,4 +138,10 @@ Build the plugin:
 npm run build
 ```
 
-For local Obsidian testing, copy or symlink this folder into a vault's `.obsidian/plugins/section-meter` directory, run `npm run build`, then enable the plugin in Obsidian.
+For local testing, copy or symlink this repository into your vault's `.obsidian/plugins/section-meter` directory. Build the plugin, then enable it in Obsidian.
+
+## License
+
+Section Meter is available under the MIT License.
+
+It is an independent community plugin and is not affiliated with, endorsed by, or sponsored by Obsidian.

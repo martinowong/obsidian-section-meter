@@ -90,6 +90,12 @@ Run all tests:
 npm test
 ```
 
+Run Obsidian's plugin checks:
+
+```sh
+npm run lint
+```
+
 Run tests continuously:
 
 ```sh
@@ -113,6 +119,7 @@ npm run dev
 For TypeScript or behavior changes, run:
 
 ```sh
+npm run lint
 npm test
 npm run build
 ```

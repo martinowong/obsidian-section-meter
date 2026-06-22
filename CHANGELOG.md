@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.6
+
+- Fixed the legacy settings renderer to use APIs supported by the declared minimum Obsidian version.
+- Added Obsidian's official plugin lint checks to local development and the release workflow.
+
 ## 0.11.5
 
 - Restored support for the public Obsidian release line by making the settings screen compatible with Obsidian 1.11 and newer.

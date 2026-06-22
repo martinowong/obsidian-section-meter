@@ -13,7 +13,7 @@ import {
   MarkdownView,
   Plugin,
   PluginSettingTab,
-  SettingGroup
+  Setting
 } from "obsidian";
 import type {
   SettingDefinition,
@@ -423,17 +423,23 @@ class SectionMeterSettingTab extends PluginSettingTab {
   }
 
   display(): void {
+    this.renderSettings();
+  }
+
+  private renderSettings(): void {
     this.containerEl.empty();
 
     for (const groupDefinition of this.getSettingGroups()) {
-      const group = new SettingGroup(this.containerEl);
       if (groupDefinition.heading) {
-        group.setHeading(groupDefinition.heading);
+        new Setting(this.containerEl)
+          .setName(groupDefinition.heading)
+          .setHeading();
       }
 
       for (const item of groupDefinition.items ?? []) {
         if ("render" in item && typeof item.render === "function") {
-          group.addSetting((setting) => item.render(setting, group));
+          const renderSetting = item.render as (setting: Setting) => void;
+          renderSetting(new Setting(this.containerEl));
         }
       }
     }
@@ -691,7 +697,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
             .onChange(async (value) => {
               await onChange(value);
               if (options.updateAfterChange) {
-                this.display();
+                this.renderSettings();
               }
             }));
       }
@@ -719,7 +725,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
             .onChange(async (value) => {
               await onChange(value);
               if (options.updateAfterChange) {
-                this.display();
+                this.renderSettings();
               }
             }));
       }

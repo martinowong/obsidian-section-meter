@@ -4,6 +4,7 @@ import {
   countReadableWords,
   formatReadingTime,
   formatSeconds,
+  getActiveSectionTargetAtPosition,
   parseHeadingSections,
   parseWritingTargetLine,
   summarizeNoteReadingTime,
@@ -366,6 +367,50 @@ describe("writing target progress", () => {
       targetValue: 6,
       isComplete: true
     });
+  });
+
+  it("keeps a parent target active inside untargeted child headings", () => {
+    const markdown = [
+      "# Parent",
+      "Target: 20 words",
+      "parent words",
+      "## Child",
+      "child words",
+      "### Grandchild",
+      "grandchild words"
+    ].join("\n");
+    const summaries = summarizeSectionReadingTimes(markdown, settings);
+
+    expect(getActiveSectionTargetAtPosition(
+      summaries,
+      markdown.indexOf("child words")
+    )).toMatchObject({ targetValue: 20 });
+    expect(getActiveSectionTargetAtPosition(
+      summaries,
+      markdown.indexOf("grandchild words")
+    )).toMatchObject({ targetValue: 20 });
+  });
+
+  it("prefers a nested target while the cursor is inside that subsection", () => {
+    const markdown = [
+      "# Parent",
+      "Target: 20 words",
+      "## Child",
+      "Target: 5 words",
+      "child words",
+      "## Sibling",
+      "sibling words"
+    ].join("\n");
+    const summaries = summarizeSectionReadingTimes(markdown, settings);
+
+    expect(getActiveSectionTargetAtPosition(
+      summaries,
+      markdown.indexOf("child words")
+    )).toMatchObject({ targetValue: 5 });
+    expect(getActiveSectionTargetAtPosition(
+      summaries,
+      markdown.indexOf("sibling words")
+    )).toMatchObject({ targetValue: 20 });
   });
 
   it("supports reading-time target progress", () => {

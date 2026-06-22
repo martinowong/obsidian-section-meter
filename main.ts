@@ -25,6 +25,7 @@ import {
   LegacyLabelStyle,
   WritingTargetProgress,
   formatReadingTime,
+  getActiveSectionTargetAtPosition,
   shouldShowSummary,
   summarizeNoteReadingTime,
   summarizeSectionReadingTimes
@@ -843,8 +844,7 @@ function getSectionTargetAtSelection(
   summaries: SectionMeterSummary[]
 ): WritingTargetProgress | null {
   const position = Math.min(...view.state.selection.ranges.map((range) => range.from));
-  const targetSection = getSelectionTargetHeading(summaries, position, position);
-  return targetSection?.target ?? null;
+  return getActiveSectionTargetAtPosition(summaries, position);
 }
 
 function getHeadingSelectionOverride(

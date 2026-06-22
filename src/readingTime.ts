@@ -220,6 +220,28 @@ export function summarizeNoteReadingTime(
   };
 }
 
+export function getActiveSectionTargetAtPosition(
+  summaries: SectionMeterSummary[],
+  position: number
+): WritingTargetProgress | null {
+  const documentEnd = summaries.reduce(
+    (furthestEnd, summary) => Math.max(furthestEnd, summary.to),
+    0
+  );
+
+  for (let index = summaries.length - 1; index >= 0; index--) {
+    const summary = summaries[index];
+    const containsPosition = position >= summary.from
+      && (position < summary.to || (position === documentEnd && summary.to === documentEnd));
+
+    if (containsPosition && summary.target) {
+      return summary.target;
+    }
+  }
+
+  return null;
+}
+
 export function shouldShowSummary(
   summary: SectionMeterSummary,
   settings: SectionMeterSettings

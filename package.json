@@ -1,6 +1,6 @@
 {
   "name": "obsidian-section-meter",
-  "version": "0.11.3",
+  "version": "0.11.4",
   "description": "Show configurable section stats beside headings and the note title in Obsidian's editor.",
   "main": "main.js",
   "scripts": {

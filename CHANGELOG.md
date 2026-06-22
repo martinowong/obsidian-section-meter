@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.4
+
+- Kept parent-heading writing targets visible in the status bar while the cursor is inside nested headings.
+- Preferred a nested heading's own target within its subsection and restored the parent target in untargeted sibling sections.
+
 ## 0.11.3
 
 - Updated settings section headings to follow Obsidian's sentence-case UI style.

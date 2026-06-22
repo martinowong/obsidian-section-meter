@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.7
+
+- Removed the Catalyst-only declarative settings APIs from the shipped plugin while preserving that work as future-release documentation.
+
 ## 0.11.6
 
 - Fixed the legacy settings renderer to use APIs supported by the declared minimum Obsidian version.

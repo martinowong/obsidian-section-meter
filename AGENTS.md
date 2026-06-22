@@ -21,6 +21,7 @@ The plugin is written in TypeScript and bundled into `main.js` with esbuild.
 ├── versions.json              # Plugin versions and minimum Obsidian versions
 ├── package.json               # Scripts, dependencies, package version
 ├── package-lock.json          # Locked dependencies and package version
+├── docs/future/               # Deferred designs for newer Obsidian APIs
 ├── README.md                  # User-facing documentation
 └── CHANGELOG.md               # Release history
 ```
@@ -133,6 +134,8 @@ Always run `git diff --check` before committing.
 `main.js` is generated from `main.ts` by esbuild.
 
 Do not edit `main.js` manually. After changing TypeScript, run `npm run build` and commit the updated bundle with its source changes.
+
+The deferred Obsidian 1.13 settings design is documented in `docs/future/obsidian-1.13-settings-api.md`. Do not restore it while 1.13 remains a Catalyst-only release.
 
 ## Versioning and releases
 

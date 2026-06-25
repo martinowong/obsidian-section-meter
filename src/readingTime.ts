@@ -13,6 +13,8 @@ export interface SectionMeterSettings {
   showWords: boolean;
   showTiming: boolean;
   showCharacters: boolean;
+  compactMode: boolean;
+  showTimeAsMinutesOnly: boolean;
   countCharactersWithSpaces: boolean;
   labelSeparator: string;
   minimumWordCount: number;
@@ -316,12 +318,25 @@ export function formatReadingTime(
   characterCount: number,
   settings: Pick<
     SectionMeterSettings,
-    "wordsPerMinute" | "showWords" | "showTiming" | "showCharacters" | "labelSeparator"
+    | "wordsPerMinute"
+    | "showWords"
+    | "showTiming"
+    | "showCharacters"
+    | "compactMode"
+    | "showTimeAsMinutesOnly"
+    | "labelSeparator"
   >
 ): string {
-  const wordLabel = `${wordCount} ${wordCount === 1 ? "word" : "words"}`;
-  const characterLabel = `${characterCount} ${characterCount === 1 ? "character" : "characters"}`;
-  const timeLabel = formatSeconds(estimateSeconds(wordCount, settings.wordsPerMinute));
+  const wordLabel = settings.compactMode
+    ? `${wordCount}w`
+    : `${wordCount} ${wordCount === 1 ? "word" : "words"}`;
+  const characterLabel = settings.compactMode
+    ? `${characterCount} chars`
+    : `${characterCount} ${characterCount === 1 ? "character" : "characters"}`;
+  const timeLabel = formatDisplaySeconds(
+    estimateSeconds(wordCount, settings.wordsPerMinute),
+    settings.compactMode || settings.showTimeAsMinutesOnly
+  );
   const parts: string[] = [];
 
   if (settings.showWords) {
@@ -351,6 +366,22 @@ export function formatSeconds(totalSeconds: number): string {
   const minutes = Math.floor(safeSeconds / 60);
   const seconds = safeSeconds % 60;
   return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+}
+
+function formatDisplaySeconds(totalSeconds: number, minutesOnly: boolean): string {
+  const safeSeconds = Number.isFinite(totalSeconds) && totalSeconds > 0
+    ? Math.ceil(totalSeconds)
+    : 0;
+
+  if (!minutesOnly) {
+    return formatSeconds(safeSeconds);
+  }
+
+  if (safeSeconds < 60) {
+    return `${safeSeconds}s`;
+  }
+
+  return `${Math.round(safeSeconds / 60)}m`;
 }
 
 function stripMarkdownToReadableText(markdown: string): string {

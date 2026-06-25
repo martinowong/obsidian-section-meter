@@ -27,11 +27,15 @@ import {
   summarizeSectionReadingTimes
 } from "./src/readingTime";
 
+declare const __SECTION_METER_BUILD_LABEL__: string;
+
 const DEFAULT_SETTINGS: SectionMeterSettings = {
   wordsPerMinute: 200,
   showWords: true,
   showTiming: true,
   showCharacters: false,
+  compactMode: false,
+  showTimeAsMinutesOnly: false,
   countCharactersWithSpaces: true,
   labelSeparator: ",",
   minimumWordCount: 0,
@@ -51,6 +55,8 @@ const MIN_TARGET_OVERAGE_WARNING_PERCENT = 100;
 const MAX_TARGET_OVERAGE_WARNING_PERCENT = 200;
 const TARGET_OVERAGE_WARNING_PERCENT_STEP = 5;
 const SELECTION_BADGE_UPDATE_DELAY_MS = 220;
+const PREVIEW_WORD_COUNT = 640;
+const PREVIEW_CHARACTER_COUNT = 3200;
 
 type StoredSettings = Partial<Record<keyof SectionMeterSettings, unknown>> & {
   labelStyle?: unknown;
@@ -409,6 +415,9 @@ class ReadingTimeWidget extends WidgetType {
 }
 
 class SectionMeterSettingTab extends PluginSettingTab {
+  private badgePreviewValueEl: HTMLElement | null = null;
+  private statusBarPreviewValueEl: HTMLElement | null = null;
+
   constructor(app: App, private readonly plugin: SectionMeterPlugin) {
     super(app, plugin);
   }
@@ -419,6 +428,9 @@ class SectionMeterSettingTab extends PluginSettingTab {
 
   private renderSettings(): void {
     this.containerEl.empty();
+    this.badgePreviewValueEl = null;
+    this.statusBarPreviewValueEl = null;
+    this.addDisplayPreview();
 
     this.addHeading("Badge display");
     this.addToggleSetting(
@@ -429,7 +441,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
         this.plugin.settings.showWords = value;
         await this.plugin.saveSettings();
       },
-      { updateAfterChange: true }
+      { updatePreviewAfterChange: true }
     );
     this.addToggleSetting(
       "Reading time",
@@ -439,7 +451,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
         this.plugin.settings.showTiming = value;
         await this.plugin.saveSettings();
       },
-      { updateAfterChange: true }
+      { updatePreviewAfterChange: true }
     );
     this.addToggleSetting(
       "Character count",
@@ -449,7 +461,27 @@ class SectionMeterSettingTab extends PluginSettingTab {
         this.plugin.settings.showCharacters = value;
         await this.plugin.saveSettings();
       },
-      { updateAfterChange: true }
+      { updatePreviewAfterChange: true }
+    );
+    this.addToggleSetting(
+      "Compact mode",
+      "Use shorter labels like 640w, 3200 chars, and 3m/49s in heading badges, title badges, and the status bar.",
+      () => this.plugin.settings.compactMode,
+      async (value) => {
+        this.plugin.settings.compactMode = value;
+        await this.plugin.saveSettings();
+      },
+      { updatePreviewAfterChange: true }
+    );
+    this.addToggleSetting(
+      "Minutes only",
+      "Hide seconds in reading-time labels once they reach a minute. Times below one minute still show seconds.",
+      () => this.plugin.settings.showTimeAsMinutesOnly,
+      async (value) => {
+        this.plugin.settings.showTimeAsMinutesOnly = value;
+        await this.plugin.saveSettings();
+      },
+      { updatePreviewAfterChange: true }
     );
     this.addTextSetting(
       "Separator",
@@ -460,7 +492,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
         this.plugin.settings.labelSeparator = normalizeSeparator(value);
         await this.plugin.saveSettings();
       },
-      { updateAfterChange: true }
+      { updatePreviewAfterChange: true }
     );
     this.addTextSetting(
       "Minimum word count",
@@ -510,7 +542,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
         this.plugin.settings.showStatusBarNoteStats = value;
         await this.plugin.saveSettings();
       },
-      { updateAfterChange: true }
+      { updatePreviewAfterChange: true }
     );
     this.addToggleSetting(
       "Selection",
@@ -520,7 +552,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
         this.plugin.settings.showStatusBarSelectionStats = value;
         await this.plugin.saveSettings();
       },
-      { updateAfterChange: true }
+      { updatePreviewAfterChange: true }
     );
     this.addToggleSetting(
       "Word count",
@@ -530,7 +562,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
         this.plugin.settings.showStatusBarWords = value;
         await this.plugin.saveSettings();
       },
-      { updateAfterChange: true }
+      { updatePreviewAfterChange: true }
     );
     this.addToggleSetting(
       "Reading time",
@@ -540,7 +572,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
         this.plugin.settings.showStatusBarTiming = value;
         await this.plugin.saveSettings();
       },
-      { updateAfterChange: true }
+      { updatePreviewAfterChange: true }
     );
     this.addToggleSetting(
       "Character count",
@@ -550,9 +582,8 @@ class SectionMeterSettingTab extends PluginSettingTab {
         this.plugin.settings.showStatusBarCharacters = value;
         await this.plugin.saveSettings();
       },
-      { updateAfterChange: true }
+      { updatePreviewAfterChange: true }
     );
-
     this.addHeading("Writing targets");
     this.addGuidanceSetting(
       "Supported target formats",
@@ -613,7 +644,77 @@ class SectionMeterSettingTab extends PluginSettingTab {
           this.plugin.settings.wordsPerMinute = value;
           readingSpeedGuidanceEl.textContent = getReadingSpeedGuidance(value);
           await this.plugin.saveSettings();
+          this.updateDisplayPreview();
         }));
+  }
+
+  private addDisplayPreview(): void {
+    const settings = this.plugin.settings;
+    const previewEl = activeDocument.createElement("div");
+    previewEl.className = "section-meter-settings-preview";
+
+    const headingEl = activeDocument.createElement("div");
+    headingEl.className = "section-meter-settings-preview-heading";
+    headingEl.textContent = "Live preview";
+    previewEl.appendChild(headingEl);
+
+    const buildInfoEl = activeDocument.createElement("div");
+    buildInfoEl.className = "section-meter-settings-preview-build";
+    buildInfoEl.textContent = createBuildInfoLabel(this.plugin.manifest.version);
+    previewEl.appendChild(buildInfoEl);
+
+    const gridEl = activeDocument.createElement("div");
+    gridEl.className = "section-meter-settings-preview-grid";
+    previewEl.appendChild(gridEl);
+
+    const badgePreview = createSettingsPreviewCard(
+      "Heading badges",
+      formatReadingTime(PREVIEW_WORD_COUNT, PREVIEW_CHARACTER_COUNT, {
+        wordsPerMinute: settings.wordsPerMinute,
+        showWords: settings.showWords,
+        showTiming: settings.showTiming,
+        showCharacters: settings.showCharacters,
+        compactMode: settings.compactMode,
+        showTimeAsMinutesOnly: settings.showTimeAsMinutesOnly,
+        labelSeparator: settings.labelSeparator
+      }),
+      "Shown beside headings and the note title."
+    );
+    this.badgePreviewValueEl = badgePreview.valueEl;
+    gridEl.appendChild(badgePreview.cardEl);
+
+    const statusBarPreview = createSettingsPreviewCard(
+      "Status bar",
+      createStatusBarPreviewLabel(settings),
+      "Shown in Obsidian's bottom status bar."
+    );
+    this.statusBarPreviewValueEl = statusBarPreview.valueEl;
+    gridEl.appendChild(statusBarPreview.cardEl);
+
+    this.containerEl.appendChild(previewEl);
+  }
+
+  private updateDisplayPreview(): void {
+    const settings = this.plugin.settings;
+    if (this.badgePreviewValueEl) {
+      this.badgePreviewValueEl.textContent = formatReadingTime(
+        PREVIEW_WORD_COUNT,
+        PREVIEW_CHARACTER_COUNT,
+        {
+          wordsPerMinute: settings.wordsPerMinute,
+          showWords: settings.showWords,
+          showTiming: settings.showTiming,
+          showCharacters: settings.showCharacters,
+          compactMode: settings.compactMode,
+          showTimeAsMinutesOnly: settings.showTimeAsMinutesOnly,
+          labelSeparator: settings.labelSeparator
+        }
+      );
+    }
+
+    if (this.statusBarPreviewValueEl) {
+      this.statusBarPreviewValueEl.textContent = createStatusBarPreviewLabel(settings);
+    }
   }
 
   private addToggleSetting(
@@ -633,6 +734,9 @@ class SectionMeterSettingTab extends PluginSettingTab {
           await onChange(value);
           if (options.updateAfterChange) {
             this.renderSettings();
+          }
+          if (options.updatePreviewAfterChange) {
+            this.updateDisplayPreview();
           }
         }));
   }
@@ -655,6 +759,9 @@ class SectionMeterSettingTab extends PluginSettingTab {
           await onChange(value);
           if (options.updateAfterChange) {
             this.renderSettings();
+          }
+          if (options.updatePreviewAfterChange) {
+            this.updateDisplayPreview();
           }
         }));
   }
@@ -704,7 +811,67 @@ class SectionMeterSettingTab extends PluginSettingTab {
 type SettingRowOptions = {
   disabled?: () => boolean;
   updateAfterChange?: boolean;
+  updatePreviewAfterChange?: boolean;
 };
+
+function createBuildInfoLabel(version: string): string {
+  const buildLabel = typeof __SECTION_METER_BUILD_LABEL__ === "string"
+    ? __SECTION_METER_BUILD_LABEL__.trim()
+    : "";
+
+  return buildLabel.length > 0
+    ? `Section Meter ${version} · ${buildLabel}`
+    : `Section Meter ${version}`;
+}
+
+function createSettingsPreviewCard(
+  title: string,
+  value: string,
+  caption: string
+): { cardEl: HTMLElement; valueEl: HTMLElement } {
+  const cardEl = activeDocument.createElement("div");
+  cardEl.className = "section-meter-settings-preview-card";
+
+  const titleEl = activeDocument.createElement("div");
+  titleEl.className = "section-meter-settings-preview-card-title";
+  titleEl.textContent = title;
+  cardEl.appendChild(titleEl);
+
+  const valueEl = activeDocument.createElement("div");
+  valueEl.className = "section-meter-settings-preview-card-value";
+  valueEl.textContent = value;
+  cardEl.appendChild(valueEl);
+
+  const captionEl = activeDocument.createElement("div");
+  captionEl.className = "section-meter-settings-preview-card-caption";
+  captionEl.textContent = caption;
+  cardEl.appendChild(captionEl);
+
+  return { cardEl, valueEl };
+}
+
+function createStatusBarPreviewLabel(settings: SectionMeterSettings): string {
+  const parts: string[] = [];
+  const label = formatReadingTime(PREVIEW_WORD_COUNT, PREVIEW_CHARACTER_COUNT, {
+    wordsPerMinute: settings.wordsPerMinute,
+    showWords: settings.showStatusBarWords,
+    showTiming: settings.showStatusBarTiming,
+    showCharacters: settings.showStatusBarCharacters,
+    compactMode: settings.compactMode,
+    showTimeAsMinutesOnly: settings.showTimeAsMinutesOnly,
+    labelSeparator: settings.labelSeparator
+  });
+
+  if (settings.showStatusBarNoteStats) {
+    parts.push(`Note: ${label}`);
+  }
+
+  if (settings.showStatusBarSelectionStats) {
+    parts.push(`Selection: ${label}`);
+  }
+
+  return parts.length > 0 ? parts.join(" | ") : "Only active section targets appear";
+}
 
 type SelectionStats = Pick<
   SectionMeterSummary,
@@ -846,6 +1013,11 @@ function normalizeSettings(settings: StoredSettings): SectionMeterSettings {
   return {
     wordsPerMinute: normalizeWordsPerMinute(settings.wordsPerMinute),
     ...displaySettings,
+    compactMode: normalizeBoolean(settings.compactMode, DEFAULT_SETTINGS.compactMode),
+    showTimeAsMinutesOnly: normalizeBoolean(
+      settings.showTimeAsMinutesOnly,
+      DEFAULT_SETTINGS.showTimeAsMinutesOnly
+    ),
     countCharactersWithSpaces:
       normalizeBoolean(
         settings.countCharactersWithSpaces,
@@ -914,6 +1086,8 @@ function formatConfiguredStats(
     showWords: settings.showStatusBarWords,
     showTiming: settings.showStatusBarTiming,
     showCharacters: settings.showStatusBarCharacters,
+    compactMode: settings.compactMode,
+    showTimeAsMinutesOnly: settings.showTimeAsMinutesOnly,
     labelSeparator: settings.labelSeparator
   });
 }

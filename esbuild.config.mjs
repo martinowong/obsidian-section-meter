@@ -9,6 +9,7 @@ if you want to view the source, please visit the github repository of this plugi
 `;
 
 const prod = process.argv[2] === "production";
+const buildLabel = process.env.SECTION_METER_BUILD_LABEL ?? "";
 
 const context = await esbuild.context({
   banner: {
@@ -29,7 +30,10 @@ const context = await esbuild.context({
   sourcemap: prod ? false : "inline",
   treeShaking: true,
   outfile: "main.js",
-  minify: prod
+  minify: prod,
+  define: {
+    __SECTION_METER_BUILD_LABEL__: JSON.stringify(buildLabel)
+  }
 });
 
 if (prod) {

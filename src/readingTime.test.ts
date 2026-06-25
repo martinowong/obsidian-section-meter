@@ -16,6 +16,8 @@ const settings = {
   showWords: true,
   showTiming: true,
   showCharacters: false,
+  compactMode: false,
+  showTimeAsMinutesOnly: false,
   countCharactersWithSpaces: true,
   labelSeparator: ",",
   minimumWordCount: 0,
@@ -237,6 +239,47 @@ describe("formatReadingTime", () => {
       showCharacters: true
     }))
       .toBe("640 words | 3200 characters | 3m 12s");
+  });
+
+  it("can use compact labels for words, characters, and time", () => {
+    expect(formatReadingTime(640, 3200, {
+      ...settings,
+      showCharacters: true,
+      compactMode: true
+    }))
+      .toBe("640w, 3200 chars, 3m");
+    expect(formatReadingTime(700, 3500, {
+      ...settings,
+      showCharacters: true,
+      compactMode: true
+    }))
+      .toBe("700w, 3500 chars, 4m");
+    expect(formatReadingTime(1, 5, {
+      ...settings,
+      showWords: false,
+      showCharacters: false,
+      compactMode: true
+    }))
+      .toBe("1s");
+  });
+
+  it("can show time as minutes only without compacting counts", () => {
+    expect(formatReadingTime(640, 3200, {
+      ...settings,
+      showTimeAsMinutesOnly: true
+    }))
+      .toBe("640 words, 3m");
+    expect(formatReadingTime(700, 3500, {
+      ...settings,
+      showTimeAsMinutesOnly: true
+    }))
+      .toBe("700 words, 4m");
+    expect(formatReadingTime(1, 5, {
+      ...settings,
+      showWords: false,
+      showTimeAsMinutesOnly: true
+    }))
+      .toBe("1s");
   });
 
   it("formats zero-padded minute and second labels", () => {

@@ -1,11 +1,12 @@
 {
   "name": "obsidian-section-meter",
-  "version": "0.11.7",
+  "version": "0.12.0",
   "description": "Show configurable section stats beside headings and the note title in Obsidian's editor.",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc --noEmit --skipLibCheck && node esbuild.config.mjs production",
+    "build:local": "node scripts/build-local.mjs",
     "lint": "eslint main.ts src/**/*.ts",
     "test": "vitest run",
     "test:watch": "vitest"

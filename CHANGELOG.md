@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.0
+
+- Added a sticky live preview for badge and status-bar settings so display changes are easier to understand while adjusting options.
+- Added compact display mode with shorter word, character, and reading-time labels.
+- Added a minutes-only reading-time option that rounds to the nearest minute while keeping sub-minute estimates in seconds.
+
 ## 0.11.7
 
 - Removed the Catalyst-only declarative settings APIs from the shipped plugin while preserving that work as future-release documentation.

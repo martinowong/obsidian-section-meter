@@ -67,6 +67,14 @@ export interface WritingTargetProgress extends WritingTarget {
   label: string;
 }
 
+export type WritingTargetScope = "note" | "section";
+
+export interface WritingTargetTextEdit {
+  from: number;
+  to: number;
+  text: string;
+}
+
 interface ParsedLine {
   text: string;
   from: number;
@@ -87,6 +95,7 @@ interface WritingTargetLine extends WritingTarget {
   line: number;
   from: number;
   to: number;
+  lineBreakTo: number;
 }
 
 const DEFAULT_WORDS_PER_MINUTE = 200;
@@ -283,6 +292,74 @@ export function parseWritingTargetLine(line: string): WritingTarget | null {
   return parseReadingTimeWritingTarget(value);
 }
 
+export function formatWritingTargetLine(target: WritingTarget): string {
+  if (target.metric === "words") {
+    return `Target: ${target.targetValue} words`;
+  }
+
+  if (target.metric === "characters") {
+    return `Target: ${target.targetValue} characters`;
+  }
+
+  const minutes = Math.floor(target.targetValue / 60);
+  const seconds = target.targetValue % 60;
+  return seconds > 0
+    ? `Target: ${minutes}m ${seconds}s`
+    : `Target: ${minutes}m`;
+}
+
+export function createWritingTargetTextEdit(
+  markdown: string,
+  scope: WritingTargetScope,
+  position: number,
+  target: WritingTarget | null
+): WritingTargetTextEdit | null {
+  const sections = parseHeadingSections(markdown);
+  const targets = parseWritingTargetLines(markdown);
+  const existingTarget = scope === "note"
+    ? findNoteTargetLine(markdown, sections, targets)
+    : findSectionTargetLineAtPosition(position, sections, targets);
+
+  if (existingTarget) {
+    return target
+      ? {
+        from: existingTarget.from,
+        to: existingTarget.to,
+        text: formatWritingTargetLine(target)
+      }
+      : {
+        from: existingTarget.from,
+        to: existingTarget.lineBreakTo,
+        text: ""
+      };
+  }
+
+  if (!target) {
+    return null;
+  }
+
+  const targetLine = formatWritingTargetLine(target);
+  if (scope === "note") {
+    const insertionOffset = getNoteTargetInsertionOffset(markdown);
+    return {
+      from: insertionOffset,
+      to: insertionOffset,
+      text: formatInsertedTargetLine(markdown, insertionOffset, targetLine)
+    };
+  }
+
+  const section = findSectionAtPosition(position, sections, markdown.length);
+  if (!section) {
+    return null;
+  }
+
+  return {
+    from: section.contentFrom,
+    to: section.contentFrom,
+    text: formatInsertedTargetLine(markdown, section.contentFrom, targetLine)
+  };
+}
+
 function countWords(readable: string): number {
   const words = readable.match(/[\p{L}\p{N}]+(?:['-][\p{L}\p{N}]+)*/gu);
   return words?.length ?? 0;
@@ -468,7 +545,8 @@ function parseWritingTargetLines(markdown: string): WritingTargetLine[] {
       ...target,
       line: index,
       from: line.from,
-      to: line.to
+      to: line.to,
+      lineBreakTo: line.lineBreakTo
     });
   }
 
@@ -476,16 +554,23 @@ function parseWritingTargetLines(markdown: string): WritingTargetLine[] {
 }
 
 function findNoteTarget(markdown: string, sections: HeadingSection[]): WritingTarget | null {
+  return findNoteTargetLine(markdown, sections, parseWritingTargetLines(markdown));
+}
+
+function findNoteTargetLine(
+  markdown: string,
+  sections: HeadingSection[],
+  targets: WritingTargetLine[]
+): WritingTargetLine | null {
   const firstHeadingFrom = sections[0]?.from ?? markdown.length;
-  return parseWritingTargetLines(markdown)
-    .find((target) => target.from < firstHeadingFrom) ?? null;
+  return targets.find((target) => target.from < firstHeadingFrom) ?? null;
 }
 
 function findSectionTarget(
   section: HeadingSection,
   sections: HeadingSection[],
   targets: WritingTargetLine[]
-): WritingTarget | null {
+): WritingTargetLine | null {
   return targets.find((target) => {
     if (target.from < section.contentFrom || target.from >= section.to) {
       return false;
@@ -507,6 +592,67 @@ function findNearestHeadingSectionBefore(
   }
 
   return null;
+}
+
+function findSectionTargetLineAtPosition(
+  position: number,
+  sections: HeadingSection[],
+  targets: WritingTargetLine[]
+): WritingTargetLine | null {
+  const documentEnd = sections.reduce(
+    (furthestEnd, section) => Math.max(furthestEnd, section.to),
+    0
+  );
+  const section = findSectionAtPosition(position, sections, documentEnd);
+  return section ? findSectionTarget(section, sections, targets) : null;
+}
+
+function findSectionAtPosition(
+  position: number,
+  sections: HeadingSection[],
+  documentEnd: number
+): HeadingSection | null {
+  for (let index = sections.length - 1; index >= 0; index--) {
+    const section = sections[index];
+    if (position >= section.from
+      && (position < section.to || (position === documentEnd && section.to === documentEnd))) {
+      return section;
+    }
+  }
+
+  return null;
+}
+
+function getNoteTargetInsertionOffset(markdown: string): number {
+  const lines = splitLines(markdown);
+  if (lines[0]?.text.trim() !== "---") {
+    return 0;
+  }
+
+  const closingLine = lines.find((line, index) => (
+    index > 0 && (line.text.trim() === "---" || line.text.trim() === "...")
+  ));
+  return closingLine?.lineBreakTo ?? 0;
+}
+
+function formatInsertedTargetLine(
+  markdown: string,
+  insertionOffset: number,
+  targetLine: string
+): string {
+  const lineBreak = markdown.includes("\r\n") ? "\r\n" : "\n";
+  const needsLeadingLineBreak = insertionOffset > 0
+    && markdown[insertionOffset - 1] !== "\n"
+    && markdown[insertionOffset - 1] !== "\r";
+  const prefix = needsLeadingLineBreak ? lineBreak : "";
+
+  if (insertionOffset === markdown.length) {
+    return `${prefix}${targetLine}`;
+  }
+
+  return markdown.startsWith(lineBreak, insertionOffset)
+    ? `${prefix}${targetLine}${lineBreak}`
+    : `${prefix}${targetLine}${lineBreak}${lineBreak}`;
 }
 
 function createWritingTargetProgress(

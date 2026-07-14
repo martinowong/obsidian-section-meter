@@ -40,6 +40,7 @@ The badge beside **Chapter one** counts the introduction and both scenes. Each s
 - Whole-note and selected-text statistics in the status bar
 - Section statistics for selected text
 - Writing targets for a whole note or individual sections
+- Command-palette actions to add, update, or remove writing targets
 - Progress bars that make targets easy to follow
 - Adjustable reading speed
 - Optional spaces in character counts
@@ -56,7 +57,7 @@ Section Writing Stats focuses on readable prose. It leaves out frontmatter, code
 - Set word-count, character-count, or reading-time goals for a draft
 - Follow writing-target progress beside headings and in the status bar
 - Check statistics for selected text while editing
-- Keep section statistics visible while writing on mobile
+- Keep section statistics visible while writing on mobile with the optional Beta meter
 
 ## Writing targets
 
@@ -99,6 +100,8 @@ Target lines are not included in your statistics.
 A target on a parent heading covers its complete section, including smaller subheadings. It remains visible in the status bar while you work inside those subheadings. If a smaller section has its own target, that target takes priority while you are inside it.
 
 Progress bars change colour as you approach your target. They turn green when the target is reached and red when you pass the configured overage warning.
+
+You can also manage targets without typing the syntax yourself. Open the command palette to set, edit, or remove the target for the whole note or the section containing your cursor.
 
 ## Customization
 

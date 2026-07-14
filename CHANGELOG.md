@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0
+
+- Renamed the plugin to Section Writing Stats, with clearer documentation and search-friendly metadata describing its word counts, character counts, reading time, section statistics, and writing targets.
+- Added command-palette actions to set, edit, and remove writing targets for the whole note or the section containing the cursor.
+- Refined the optional Beta mobile meter so it is more compact and follows the section currently visible in the editor more promptly.
+- Kept the stable `section-meter` plugin ID, so existing installations and settings continue to update normally.
+
 ## 0.13.0
 
 - Improved the live settings preview: it is now more compact and more closely matches how heading badges and the status bar appear in Obsidian.

@@ -10,19 +10,28 @@ import {
 } from "@codemirror/view";
 import {
   App,
+  Editor,
   MarkdownView,
+  Modal,
+  Notice,
   Plugin,
   PluginSettingTab,
-  Setting
+  Setting,
+  TextComponent
 } from "obsidian";
 import {
   SectionMeterSettings,
   SectionMeterSummary,
   LegacyLabelStyle,
+  WritingTarget,
+  WritingTargetMetric,
   WritingTargetProgress,
+  WritingTargetScope,
+  createWritingTargetTextEdit,
   formatReadingTime,
   getActiveSectionTargetAtPosition,
   estimateSeconds,
+  parseWritingTargetLine,
   shouldShowSummary,
   summarizeNoteReadingTime,
   summarizeSectionReadingTimes
@@ -86,6 +95,7 @@ export default class SectionMeterPlugin extends Plugin {
       ))
     );
     this.addSettingTab(new SectionMeterSettingTab(this.app, this));
+    this.registerWritingTargetCommands();
     this.registerEvent(
       this.app.workspace.on("layout-change", () => {
         this.refreshTitleBadges();
@@ -123,6 +133,93 @@ export default class SectionMeterPlugin extends Plugin {
     this.refreshEditorExtensions();
     this.refreshTitleBadges();
     this.refreshStatusBarFromActiveView();
+  }
+
+  private registerWritingTargetCommands() {
+    this.addCommand({
+      id: "set-note-writing-target",
+      name: "Set or edit whole-note writing target",
+      editorCallback: (editor) => this.openWritingTargetModal(editor, "note")
+    });
+    this.addCommand({
+      id: "set-section-writing-target",
+      name: "Set or edit current-section writing target",
+      editorCallback: (editor) => this.openWritingTargetModal(editor, "section")
+    });
+    this.addCommand({
+      id: "remove-note-writing-target",
+      name: "Remove whole-note writing target",
+      editorCallback: (editor) => this.removeWritingTarget(editor, "note")
+    });
+    this.addCommand({
+      id: "remove-section-writing-target",
+      name: "Remove current-section writing target",
+      editorCallback: (editor) => this.removeWritingTarget(editor, "section")
+    });
+  }
+
+  private openWritingTargetModal(editor: Editor, scope: WritingTargetScope) {
+    const context = getWritingTargetCommandContext(editor, scope, this.settings);
+    if (!context) {
+      new Notice("Place the cursor inside a heading section first.");
+      return;
+    }
+
+    new WritingTargetModal(
+      this.app,
+      scope,
+      context.existingTarget,
+      (target) => {
+        const currentContext = getWritingTargetCommandContext(editor, scope, this.settings);
+        if (!currentContext) {
+          new Notice("The current section could not be found.");
+          return;
+        }
+
+        const edit = createWritingTargetTextEdit(
+          currentContext.markdown,
+          scope,
+          currentContext.position,
+          target
+        );
+        if (!edit) {
+          new Notice("The writing target could not be added.");
+          return;
+        }
+
+        editor.replaceRange(
+          edit.text,
+          editor.offsetToPos(edit.from),
+          editor.offsetToPos(edit.to)
+        );
+      }
+    ).open();
+  }
+
+  private removeWritingTarget(editor: Editor, scope: WritingTargetScope) {
+    const context = getWritingTargetCommandContext(editor, scope, this.settings);
+    if (!context) {
+      new Notice("Place the cursor inside a heading section first.");
+      return;
+    }
+
+    const edit = createWritingTargetTextEdit(
+      context.markdown,
+      scope,
+      context.position,
+      null
+    );
+    if (!edit) {
+      const targetScope = scope === "note" ? "whole note" : "current section";
+      new Notice(`No writing target exists for the ${targetScope}.`);
+      return;
+    }
+
+    editor.replaceRange(
+      edit.text,
+      editor.offsetToPos(edit.from),
+      editor.offsetToPos(edit.to)
+    );
   }
 
   private refreshEditorExtensions() {
@@ -262,6 +359,171 @@ export default class SectionMeterPlugin extends Plugin {
     this.statusBarItem.removeAttribute("title");
     this.statusBarItem.classList.add("section-meter-status-bar-hidden");
   }
+}
+
+interface WritingTargetCommandContext {
+  markdown: string;
+  position: number;
+  existingTarget: WritingTarget | null;
+}
+
+function getWritingTargetCommandContext(
+  editor: Editor,
+  scope: WritingTargetScope,
+  settings: SectionMeterSettings
+): WritingTargetCommandContext | null {
+  const markdown = editor.getValue();
+  const position = editor.posToOffset(editor.getCursor());
+  if (scope === "note") {
+    return {
+      markdown,
+      position,
+      existingTarget: summarizeNoteReadingTime(markdown, settings).target
+    };
+  }
+
+  const section = findSectionSummaryAtPosition(
+    summarizeSectionReadingTimes(markdown, settings),
+    position,
+    markdown.length
+  );
+  return section
+    ? {
+      markdown,
+      position,
+      existingTarget: section.target
+    }
+    : null;
+}
+
+function findSectionSummaryAtPosition(
+  summaries: SectionMeterSummary[],
+  position: number,
+  documentEnd: number
+): SectionMeterSummary | null {
+  for (let index = summaries.length - 1; index >= 0; index--) {
+    const summary = summaries[index];
+    if (position >= summary.from
+      && (position < summary.to || (position === documentEnd && summary.to === documentEnd))) {
+      return summary;
+    }
+  }
+
+  return null;
+}
+
+class WritingTargetModal extends Modal {
+  constructor(
+    app: App,
+    private readonly targetScope: WritingTargetScope,
+    private readonly existingTarget: WritingTarget | null,
+    private readonly onSubmitTarget: (target: WritingTarget) => void
+  ) {
+    super(app);
+  }
+
+  onOpen() {
+    const scopeLabel = this.targetScope === "note" ? "whole note" : "current section";
+    this.setTitle(`${this.existingTarget ? "Edit" : "Set"} ${scopeLabel} target`);
+    this.contentEl.empty();
+
+    const formEl = this.contentEl.createEl("form");
+    let metric: WritingTargetMetric = this.existingTarget?.metric ?? "words";
+    let amountInput: TextComponent | null = null;
+
+    const updateAmountInput = () => {
+      if (amountInput === null) {
+        return;
+      }
+
+      amountInput.setPlaceholder(metric === "reading-time" ? "3m or 2m 30s" : "250");
+      amountInput.inputEl.inputMode = metric === "reading-time" ? "text" : "numeric";
+    };
+
+    new Setting(formEl)
+      .setName("Measure")
+      .addDropdown((dropdown) => dropdown
+        .addOption("words", "Words")
+        .addOption("characters", "Characters")
+        .addOption("reading-time", "Reading time")
+        .setValue(metric)
+        .onChange((value) => {
+          metric = value as WritingTargetMetric;
+          updateAmountInput();
+        }));
+
+    new Setting(formEl)
+      .setName("Target")
+      .setDesc("Enter a positive number, or a time such as 3m or 2m 30s.")
+      .addText((text) => {
+        amountInput = text;
+        text.setValue(formatWritingTargetInputValue(this.existingTarget));
+        updateAmountInput();
+      });
+
+    new Setting(formEl)
+      .addButton((button) => {
+        button
+          .setButtonText(this.existingTarget ? "Update target" : "Add target")
+          .setCta();
+        button.buttonEl.type = "submit";
+      });
+
+    formEl.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (amountInput === null) {
+        return;
+      }
+
+      const target = parseWritingTargetInput(metric, amountInput.getValue());
+      if (!target) {
+        new Notice("Enter a valid positive writing target.");
+        amountInput.inputEl.focus();
+        return;
+      }
+
+      this.onSubmitTarget(target);
+      this.close();
+    });
+
+    window.setTimeout(() => amountInput?.inputEl.focus(), 0);
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+function parseWritingTargetInput(
+  metric: WritingTargetMetric,
+  rawValue: string
+): WritingTarget | null {
+  const value = rawValue.trim();
+  if (!value) {
+    return null;
+  }
+
+  if (metric === "reading-time") {
+    const normalizedValue = /^\d+$/.test(value) ? `${value}m` : value;
+    return parseWritingTargetLine(`Target: ${normalizedValue}`);
+  }
+
+  const unit = metric === "words" ? "words" : "characters";
+  return parseWritingTargetLine(`Target: ${value} ${unit}`);
+}
+
+function formatWritingTargetInputValue(target: WritingTarget | null): string {
+  if (!target) {
+    return "";
+  }
+
+  if (target.metric !== "reading-time") {
+    return String(target.targetValue);
+  }
+
+  const minutes = Math.floor(target.targetValue / 60);
+  const seconds = target.targetValue % 60;
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
 function createSectionMeterExtension(
@@ -703,8 +965,8 @@ class SectionMeterSettingTab extends PluginSettingTab {
 
     this.addHeading("Mobile");
     this.addToggleSetting(
-      "Sticky current-section meter",
-      "Show the heading currently in view and its stats while scrolling in the mobile editor.",
+      "Sticky current-section meter (Beta)",
+      "Beta: show the heading currently in view and its stats while scrolling in the mobile editor.",
       () => this.plugin.settings.mobileStickySectionMeter,
       async (value) => {
         this.plugin.settings.mobileStickySectionMeter = value;

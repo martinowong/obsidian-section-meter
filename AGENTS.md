@@ -163,6 +163,8 @@ Version bumps should follow this convention while the plugin is pre-1.0:
 - Patch bump, such as `0.12.0` to `0.12.1`, for bug fixes, compatibility fixes, small copy changes, or narrow refinements.
 - No version bump for README-only or documentation-only changes unless the user explicitly asks for a release.
 
+From 1.0 onward, follow semantic versioning: use patch releases for compatible fixes, minor releases for backward-compatible features, and major releases for breaking changes.
+
 Release notes should be friendly, comprehensible, and a little more descriptive than a terse changelog bullet. Lead with the main user-facing benefit, not internal tooling. A good one-sentence release note is:
 
 > Section Writing Stats now has a sticky live preview in settings, so you can immediately see how your heading badges and status bar will look while you adjust them, plus new compact and minutes-only display options for a cleaner writing view.

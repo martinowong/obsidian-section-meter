@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   countReadableCharacters,
   countReadableWords,
+  createWritingTargetTextEdit,
   formatReadingTime,
   formatSeconds,
   getActiveSectionTargetAtPosition,
@@ -533,3 +534,106 @@ describe("writing target progress", () => {
     });
   });
 });
+
+describe("writing target text edits", () => {
+  it("inserts a whole-note target after frontmatter", () => {
+    const markdown = "---\ntitle: Draft\n---\n# Intro\nOpening words";
+    const edit = createWritingTargetTextEdit(
+      markdown,
+      "note",
+      0,
+      { metric: "words", targetValue: 1200 }
+    );
+
+    expect(applyTextEdit(markdown, edit)).toBe(
+      "---\ntitle: Draft\n---\nTarget: 1200 words\n\n# Intro\nOpening words"
+    );
+  });
+
+  it("separates a target from frontmatter that ends at the end of the file", () => {
+    const markdown = "---\ntitle: Draft\n---";
+    const edit = createWritingTargetTextEdit(
+      markdown,
+      "note",
+      0,
+      { metric: "words", targetValue: 500 }
+    );
+
+    expect(applyTextEdit(markdown, edit)).toBe(
+      "---\ntitle: Draft\n---\nTarget: 500 words"
+    );
+  });
+
+  it("updates an existing target without adding another line", () => {
+    const markdown = "Target: 500 words\n\n# Draft\nText";
+    const edit = createWritingTargetTextEdit(
+      markdown,
+      "note",
+      markdown.length,
+      { metric: "characters", targetValue: 3000 }
+    );
+
+    expect(applyTextEdit(markdown, edit)).toBe(
+      "Target: 3000 characters\n\n# Draft\nText"
+    );
+  });
+
+  it("adds a target to the nested section containing the cursor", () => {
+    const markdown = "# Parent\nParent text\n## Child\nChild text";
+    const edit = createWritingTargetTextEdit(
+      markdown,
+      "section",
+      markdown.indexOf("Child text"),
+      { metric: "reading-time", targetValue: 150 }
+    );
+
+    expect(applyTextEdit(markdown, edit)).toBe(
+      "# Parent\nParent text\n## Child\nTarget: 2m 30s\n\nChild text"
+    );
+  });
+
+  it("removes only the current section's own target", () => {
+    const markdown = [
+      "# Parent",
+      "Target: 1000 words",
+      "## Child",
+      "Target: 250 words",
+      "Child text"
+    ].join("\n");
+    const edit = createWritingTargetTextEdit(
+      markdown,
+      "section",
+      markdown.indexOf("Child text"),
+      null
+    );
+
+    expect(applyTextEdit(markdown, edit)).toBe([
+      "# Parent",
+      "Target: 1000 words",
+      "## Child",
+      "Child text"
+    ].join("\n"));
+  });
+
+  it("does not create a section target before the first heading", () => {
+    const markdown = "Introductory text\n# Draft\nWords";
+
+    expect(createWritingTargetTextEdit(
+      markdown,
+      "section",
+      5,
+      { metric: "words", targetValue: 250 }
+    )).toBeNull();
+  });
+});
+
+function applyTextEdit(
+  markdown: string,
+  edit: ReturnType<typeof createWritingTargetTextEdit>
+): string {
+  if (!edit) {
+    throw new Error("Expected a writing target edit");
+  }
+
+  return markdown.slice(0, edit.from) + edit.text + markdown.slice(edit.to);
+}

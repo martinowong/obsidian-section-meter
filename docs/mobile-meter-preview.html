@@ -130,11 +130,15 @@
         bottom: 18px;
         left: 50%;
         width: min(calc(100% - 32px), 398px);
-        padding: 10px 12px 9px;
+        display: grid;
+        grid-template-columns: minmax(80px, 0.8fr) minmax(0, 1.7fr);
+        gap: 8px;
+        align-items: center;
+        padding: 7px 9px;
         border: 1px solid var(--line);
-        border-radius: 12px;
+        border-radius: 9px;
         background: color-mix(in srgb, var(--canvas) 94%, transparent);
-        box-shadow: 0 8px 24px rgb(0 0 0 / 0.1);
+        box-shadow: 0 4px 12px rgb(0 0 0 / 0.1);
         backdrop-filter: blur(12px);
         transform: translateX(-50%);
       }
@@ -142,22 +146,28 @@
       .current-section-name {
         overflow: hidden;
         color: var(--text);
-        font-size: 0.78rem;
-        font-weight: 650;
+        font-size: 0.72rem;
+        font-weight: 600;
         letter-spacing: -0.01em;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
 
       .current-section-details {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 5px 12px;
-        align-items: baseline;
-        margin-top: 5px;
+        display: flex;
+        gap: 7px;
+        align-items: center;
+        min-width: 0;
         color: var(--muted);
-        font-size: 0.76rem;
+        font-size: 0.7rem;
         font-variant-numeric: tabular-nums;
+      }
+
+      .current-section-stats {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .current-section-target {
@@ -167,7 +177,8 @@
       }
 
       .current-section-progress {
-        grid-column: 1 / -1;
+        flex: 0 0 40px;
+        width: 40px;
         height: 4px;
         overflow: hidden;
         border-radius: 999px;
@@ -228,7 +239,7 @@
       <aside class="current-section-meter" aria-label="Current section: Proportions. 883 characters, 0 minutes 55 seconds. Target 0 minutes 55 seconds of 2 minutes.">
         <div class="current-section-name">Proportions</div>
         <div class="current-section-details">
-          <span>883 characters <span class="separator">·</span> 0m 55s</span>
+          <span class="current-section-stats">883 characters <span class="separator">·</span> 0m 55s</span>
           <span class="current-section-target">Target 0m 55s / 2m</span>
           <div class="current-section-progress" aria-hidden="true"><span></span></div>
         </div>

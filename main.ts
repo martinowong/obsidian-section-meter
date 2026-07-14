@@ -401,7 +401,10 @@ function createSectionMeterExtension(
       }
 
       const settings = getSettings();
-      const summary = getSummaryAtViewportStart(this.summaries, view.viewport.from);
+      const summary = getSummaryAtViewportStart(
+        this.summaries,
+        getPositionAtVisibleViewportTop(view)
+      );
       if (!summary || (!summary.target && !shouldShowSummary(summary, settings))) {
         this.mobileMeterEl.classList.add("section-meter-mobile-current-section-hidden");
         return;
@@ -415,6 +418,12 @@ function createSectionMeterExtension(
   return ViewPlugin.fromClass(SectionMeterViewPlugin, {
     decorations: (plugin) => plugin.decorations
   });
+}
+
+function getPositionAtVisibleViewportTop(view: EditorView): number {
+  const viewportTop = view.scrollDOM.getBoundingClientRect().top;
+  const documentHeight = Math.max(0, (viewportTop - view.documentTop) / view.scaleY);
+  return view.lineBlockAtHeight(documentHeight).from;
 }
 
 function getSummaryAtViewportStart(

@@ -402,40 +402,42 @@ body.is-mobile .section-meter-mobile-current-section,
 .is-mobile .section-meter-mobile-current-section {
   position: fixed;
   z-index: 30;
-  inset-inline: 0.8rem;
-  inset-block-end: max(0.8rem, env(safe-area-inset-bottom));
+  inset-inline: 1rem;
+  inset-block-end: max(0.65rem, env(safe-area-inset-bottom));
   display: grid;
-  gap: 0.28rem;
-  max-inline-size: 32rem;
+  grid-template-columns: minmax(4rem, 0.8fr) minmax(0, 1.7fr);
+  gap: 0.5rem;
+  align-items: center;
+  max-inline-size: 30rem;
   margin-inline: auto;
-  padding: 0.55rem 0.65rem 0.5rem;
+  padding: 0.36rem 0.5rem;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
+  border-radius: 8px;
   color: var(--text-muted);
   background: var(--background-primary);
-  box-shadow: 0 7px 20px rgba(0, 0, 0, 0.14);
-  font-size: var(--font-ui-smaller);
-  line-height: 1.25;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+  font-size: var(--font-ui-smallest);
+  line-height: 1.15;
   pointer-events: none;
 }
 
 .section-meter-mobile-current-section-heading {
   overflow: hidden;
   color: var(--text-normal);
-  font-weight: 650;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .section-meter-mobile-current-section-details {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.3rem 0.6rem;
-  align-items: baseline;
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
   min-inline-size: 0;
 }
 
 .section-meter-mobile-current-section-stats {
+  flex: 1 1 auto;
   min-inline-size: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -443,17 +445,21 @@ body.is-mobile .section-meter-mobile-current-section,
 }
 
 .section-meter-mobile-current-section-target {
+  flex: 0 0 auto;
   color: var(--text-normal);
   text-align: end;
   white-space: nowrap;
 }
 
 .section-meter-mobile-current-section-progress {
-  grid-column: 1 / -1;
-  inline-size: 100%;
-  block-size: 0.25rem;
+  flex: 0 0 2.5rem;
+  inline-size: 2.5rem;
+  block-size: 0.22rem;
 }
 
-.section-meter-mobile-current-section-hidden {
-  display: none !important;
+body.is-mobile
+  .section-meter-mobile-current-section.section-meter-mobile-current-section-hidden,
+.is-mobile
+  .section-meter-mobile-current-section.section-meter-mobile-current-section-hidden {
+  display: none;
 }

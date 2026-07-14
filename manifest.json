@@ -1,9 +1,9 @@
 {
   "id": "section-meter",
-  "name": "Section Meter",
+  "name": "Section Writing Stats",
   "version": "0.13.0",
   "minAppVersion": "1.11.0",
-  "description": "Shows configurable section stats beside each heading and the note title in the editor.",
+  "description": "Shows live word counts, character counts, reading time, and writing-target progress beside headings, note titles, and in the status bar.",
   "author": "Martino Wong",
   "authorUrl": "https://github.com/martinowong",
   "isDesktopOnly": false

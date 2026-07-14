@@ -10,7 +10,7 @@ const env = {
 run("TypeScript check", getLocalBinary("tsc"), ["--noEmit", "--skipLibCheck"]);
 run("Production bundle", process.execPath, ["esbuild.config.mjs", "production"]);
 
-console.log(`Built Section Meter with build label: ${buildLabel}`);
+console.log(`Built Section Writing Stats with build label: ${buildLabel}`);
 
 function createLocalBuildLabel() {
   const now = new Date();

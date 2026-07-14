@@ -14,7 +14,7 @@ export default defineConfig([
     },
     rules: {
       "obsidianmd/ui/sentence-case": ["error", {
-        brands: ["Section Meter"]
+        brands: ["Section Writing Stats"]
       }]
     }
   }

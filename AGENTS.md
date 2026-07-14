@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Section Meter is an Obsidian community plugin that shows word counts, character counts, reading-time estimates, and writing-target progress beside headings, the note title, and in the status bar.
+Section Writing Stats is an Obsidian community plugin that shows word counts, character counts, reading-time estimates, and writing-target progress beside headings, the note title, and in the status bar.
 
 The plugin is written in TypeScript and bundled into `main.js` with esbuild.
 
@@ -165,7 +165,7 @@ Version bumps should follow this convention while the plugin is pre-1.0:
 
 Release notes should be friendly, comprehensible, and a little more descriptive than a terse changelog bullet. Lead with the main user-facing benefit, not internal tooling. A good one-sentence release note is:
 
-> Section Meter now has a sticky live preview in settings, so you can immediately see how your heading badges and status bar will look while you adjust them, plus new compact and minutes-only display options for a cleaner writing view.
+> Section Writing Stats now has a sticky live preview in settings, so you can immediately see how your heading badges and status bar will look while you adjust them, plus new compact and minutes-only display options for a cleaner writing view.
 
 Publishing a GitHub release triggers `.github/workflows/release.yml`, which runs the tests, rebuilds the plugin, and attaches:
 

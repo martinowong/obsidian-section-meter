@@ -248,7 +248,7 @@ export default class SectionMeterPlugin extends Plugin {
       "aria-label",
       partLabels.join(". ")
     );
-    this.statusBarItem.setAttribute("title", "Section Meter");
+    this.statusBarItem.setAttribute("title", "Section Writing Stats");
     this.statusBarItem.classList.remove("section-meter-status-bar-hidden");
   }
 
@@ -988,8 +988,8 @@ function createBuildInfoLabel(version: string): string {
     : "";
 
   return buildLabel.length > 0
-    ? `Section Meter ${version} · ${buildLabel}`
-    : `Section Meter ${version}`;
+    ? `Section Writing Stats ${version} · ${buildLabel}`
+    : `Section Writing Stats ${version}`;
 }
 
 function createSettingsHeadingPreview(

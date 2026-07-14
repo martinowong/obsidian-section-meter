@@ -1,7 +1,7 @@
 {
   "name": "obsidian-section-meter",
   "version": "0.13.0",
-  "description": "Show configurable section stats beside headings and the note title in Obsidian's editor.",
+  "description": "Show live word counts, character counts, reading time, and writing-goal progress for every section in Obsidian.",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
@@ -14,8 +14,15 @@
   "keywords": [
     "obsidian",
     "plugin",
+    "word-count",
+    "character-count",
+    "writing-stats",
+    "writing-goals",
     "reading-time",
-    "headings"
+    "headings",
+    "markdown",
+    "productivity",
+    "writing-tools"
   ],
   "author": "Martino Wong",
   "license": "MIT",

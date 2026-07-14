@@ -17,6 +17,9 @@ const settings = {
   showTiming: true,
   showCharacters: false,
   compactMode: false,
+  compactWordsLabel: "w",
+  compactCharactersLabel: "char",
+  compactMinutesLabel: "m",
   showTimeAsMinutesOnly: false,
   countCharactersWithSpaces: true,
   labelSeparator: ",",
@@ -28,7 +31,9 @@ const settings = {
   showStatusBarTiming: false,
   showStatusBarCharacters: false,
   targetOverageWarningPercent: 125,
-  targetProgressLabelStyle: "count" as const
+  targetProgressLabelStyle: "count" as const,
+  mobileStickySectionMeter: false,
+  previewSticky: true
 };
 
 describe("parseHeadingSections", () => {
@@ -247,13 +252,13 @@ describe("formatReadingTime", () => {
       showCharacters: true,
       compactMode: true
     }))
-      .toBe("640w, 3200 chars, 3m");
+      .toBe("640w, 3200 char, 3m");
     expect(formatReadingTime(700, 3500, {
       ...settings,
       showCharacters: true,
       compactMode: true
     }))
-      .toBe("700w, 3500 chars, 4m");
+      .toBe("700w, 3500 char, 4m");
     expect(formatReadingTime(1, 5, {
       ...settings,
       showWords: false,
@@ -280,6 +285,30 @@ describe("formatReadingTime", () => {
       showTimeAsMinutesOnly: true
     }))
       .toBe("1s");
+  });
+
+  it("uses customized labels in compact mode", () => {
+    expect(formatReadingTime(640, 3200, {
+      ...settings,
+      showCharacters: true,
+      compactMode: true,
+      compactWordsLabel: "wd",
+      compactCharactersLabel: "ch",
+      compactMinutesLabel: "min"
+    }))
+      .toBe("640wd, 3200 ch, 3min");
+  });
+
+  it("falls back to default compact labels when customized labels are empty", () => {
+    expect(formatReadingTime(640, 3200, {
+      ...settings,
+      showCharacters: true,
+      compactMode: true,
+      compactWordsLabel: "",
+      compactCharactersLabel: " ",
+      compactMinutesLabel: ""
+    }))
+      .toBe("640w, 3200 char, 3m");
   });
 
   it("formats zero-padded minute and second labels", () => {

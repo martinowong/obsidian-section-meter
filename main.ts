@@ -22,6 +22,7 @@ import {
   WritingTargetProgress,
   formatReadingTime,
   getActiveSectionTargetAtPosition,
+  estimateSeconds,
   shouldShowSummary,
   summarizeNoteReadingTime,
   summarizeSectionReadingTimes
@@ -35,6 +36,9 @@ const DEFAULT_SETTINGS: SectionMeterSettings = {
   showTiming: true,
   showCharacters: false,
   compactMode: false,
+  compactWordsLabel: "w",
+  compactCharactersLabel: "char",
+  compactMinutesLabel: "m",
   showTimeAsMinutesOnly: false,
   countCharactersWithSpaces: true,
   labelSeparator: ",",
@@ -46,7 +50,9 @@ const DEFAULT_SETTINGS: SectionMeterSettings = {
   showStatusBarTiming: false,
   showStatusBarCharacters: false,
   targetOverageWarningPercent: 125,
-  targetProgressLabelStyle: "count"
+  targetProgressLabelStyle: "count",
+  mobileStickySectionMeter: false,
+  previewSticky: true
 };
 const MIN_WORDS_PER_MINUTE = 100;
 const MAX_WORDS_PER_MINUTE = 500;
@@ -268,10 +274,22 @@ function createSectionMeterExtension(
     private selectionBadgeUpdateTimer: number | null = null;
     private selectionBadgeRefreshQueued = false;
     private applySelectionBadgeOverride = true;
+    private mobileMeterEl: HTMLElement | null = null;
+    private mobileMeterScrollDom: HTMLElement | null = null;
+    private mobileMeterScrollHandler: (() => void) | null = null;
 
     constructor(view: EditorView) {
       this.summaries = summarizeSectionReadingTimes(view.state.doc.toString(), getSettings());
       this.decorations = this.buildDecorations(view);
+
+      if (getSettings().mobileStickySectionMeter) {
+        this.mobileMeterEl = createMobileSectionMeterEl();
+        view.dom.appendChild(this.mobileMeterEl);
+        this.mobileMeterScrollHandler = () => this.updateMobileMeter(view);
+        this.mobileMeterScrollDom = view.scrollDOM;
+        this.mobileMeterScrollDom.addEventListener("scroll", this.mobileMeterScrollHandler, { passive: true });
+        this.updateMobileMeter(view);
+      }
     }
 
     update(update: ViewUpdate) {
@@ -295,12 +313,24 @@ function createSectionMeterExtension(
       if (shouldRebuildDecorations) {
         this.decorations = this.buildDecorations(update.view);
       }
+
+      if (update.docChanged || update.viewportChanged) {
+        this.updateMobileMeter(update.view);
+      }
     }
 
     destroy() {
       if (this.selectionBadgeUpdateTimer !== null) {
         window.clearTimeout(this.selectionBadgeUpdateTimer);
       }
+
+      if (this.mobileMeterScrollDom && this.mobileMeterScrollHandler) {
+        this.mobileMeterScrollDom.removeEventListener("scroll", this.mobileMeterScrollHandler);
+      }
+      this.mobileMeterEl?.remove();
+      this.mobileMeterEl = null;
+      this.mobileMeterScrollDom = null;
+      this.mobileMeterScrollHandler = null;
 
       this.summaries = [];
     }
@@ -364,11 +394,83 @@ function createSectionMeterExtension(
 
       return builder.finish();
     }
+
+    private updateMobileMeter(view: EditorView): void {
+      if (!this.mobileMeterEl) {
+        return;
+      }
+
+      const settings = getSettings();
+      const summary = getSummaryAtViewportStart(this.summaries, view.viewport.from);
+      if (!summary || (!summary.target && !shouldShowSummary(summary, settings))) {
+        this.mobileMeterEl.classList.add("section-meter-mobile-current-section-hidden");
+        return;
+      }
+
+      this.mobileMeterEl.classList.remove("section-meter-mobile-current-section-hidden");
+      renderMobileSectionMeter(this.mobileMeterEl, summary);
+    }
   }
 
   return ViewPlugin.fromClass(SectionMeterViewPlugin, {
     decorations: (plugin) => plugin.decorations
   });
+}
+
+function getSummaryAtViewportStart(
+  summaries: SectionMeterSummary[],
+  position: number
+): SectionMeterSummary | null {
+  for (let index = summaries.length - 1; index >= 0; index--) {
+    if (summaries[index].from <= position) {
+      return summaries[index];
+    }
+  }
+
+  return null;
+}
+
+function createMobileSectionMeterEl(): HTMLElement {
+  const meterEl = activeDocument.createElement("aside");
+  meterEl.className = "section-meter-mobile-current-section";
+  meterEl.setAttribute("aria-live", "off");
+  return meterEl;
+}
+
+function renderMobileSectionMeter(
+  meterEl: HTMLElement,
+  summary: SectionMeterSummary
+): void {
+  const headingEl = activeDocument.createElement("div");
+  headingEl.className = "section-meter-mobile-current-section-heading";
+  headingEl.textContent = summary.title || "Current section";
+
+  const detailsEl = activeDocument.createElement("div");
+  detailsEl.className = "section-meter-mobile-current-section-details";
+
+  const statsEl = activeDocument.createElement("span");
+  statsEl.className = "section-meter-mobile-current-section-stats";
+  statsEl.textContent = summary.label;
+  detailsEl.appendChild(statsEl);
+
+  if (summary.target) {
+    const targetEl = activeDocument.createElement("span");
+    targetEl.className = "section-meter-mobile-current-section-target";
+    targetEl.textContent = `Target ${summary.target.label}`;
+    detailsEl.appendChild(targetEl);
+
+    const progressEl = createTargetProgressEl(summary.target);
+    progressEl.classList.add("section-meter-mobile-current-section-progress");
+    detailsEl.appendChild(progressEl);
+  }
+
+  meterEl.replaceChildren(headingEl, detailsEl);
+  meterEl.setAttribute(
+    "aria-label",
+    summary.target
+      ? `${summary.title || "Current section"}: ${summary.label}, target ${summary.target.label}`
+      : `${summary.title || "Current section"}: ${summary.label}`
+  );
 }
 
 class ReadingTimeWidget extends WidgetType {
@@ -415,8 +517,9 @@ class ReadingTimeWidget extends WidgetType {
 }
 
 class SectionMeterSettingTab extends PluginSettingTab {
+  private previewEl: HTMLElement | null = null;
   private badgePreviewValueEl: HTMLElement | null = null;
-  private statusBarPreviewValueEl: HTMLElement | null = null;
+  private statusBarPreviewContentEl: HTMLElement | null = null;
 
   constructor(app: App, private readonly plugin: SectionMeterPlugin) {
     super(app, plugin);
@@ -428,8 +531,9 @@ class SectionMeterSettingTab extends PluginSettingTab {
 
   private renderSettings(): void {
     this.containerEl.empty();
+    this.previewEl = null;
     this.badgePreviewValueEl = null;
-    this.statusBarPreviewValueEl = null;
+    this.statusBarPreviewContentEl = null;
     this.addDisplayPreview();
 
     this.addHeading("Badge display");
@@ -471,8 +575,11 @@ class SectionMeterSettingTab extends PluginSettingTab {
         this.plugin.settings.compactMode = value;
         await this.plugin.saveSettings();
       },
-      { updatePreviewAfterChange: true }
+      { updateAfterChange: true, updatePreviewAfterChange: true }
     );
+    if (this.plugin.settings.compactMode) {
+      this.addCompactLabelSettings();
+    }
     this.addToggleSetting(
       "Minutes only",
       "Hide seconds in reading-time labels once they reach a minute. Times below one minute still show seconds.",
@@ -584,6 +691,18 @@ class SectionMeterSettingTab extends PluginSettingTab {
       },
       { updatePreviewAfterChange: true }
     );
+
+    this.addHeading("Mobile");
+    this.addToggleSetting(
+      "Sticky current-section meter",
+      "Show the heading currently in view and its stats while scrolling in the mobile editor.",
+      () => this.plugin.settings.mobileStickySectionMeter,
+      async (value) => {
+        this.plugin.settings.mobileStickySectionMeter = value;
+        await this.plugin.saveSettings();
+      }
+    );
+
     this.addHeading("Writing targets");
     this.addGuidanceSetting(
       "Supported target formats",
@@ -651,47 +770,91 @@ class SectionMeterSettingTab extends PluginSettingTab {
   private addDisplayPreview(): void {
     const settings = this.plugin.settings;
     const previewEl = activeDocument.createElement("div");
-    previewEl.className = "section-meter-settings-preview";
+    previewEl.className = [
+      "section-meter-settings-preview",
+      settings.previewSticky ? "" : "section-meter-settings-preview-static"
+    ].filter(Boolean).join(" ");
+    this.previewEl = previewEl;
 
-    const headingEl = activeDocument.createElement("div");
-    headingEl.className = "section-meter-settings-preview-heading";
-    headingEl.textContent = "Live preview";
-    previewEl.appendChild(headingEl);
+    const headerEl = activeDocument.createElement("div");
+    headerEl.className = "section-meter-settings-preview-heading";
+
+    headerEl.textContent = "Live preview";
+    previewEl.appendChild(headerEl);
+
+    const examplesEl = activeDocument.createElement("div");
+    examplesEl.className = "section-meter-settings-preview-examples";
+
+    const badgePreview = createSettingsHeadingPreview(settings);
+    this.badgePreviewValueEl = badgePreview.valueEl;
+    examplesEl.appendChild(badgePreview.el);
+
+    const statusBarPreview = createSettingsStatusBarPreview(settings);
+    this.statusBarPreviewContentEl = statusBarPreview.contentEl;
+    examplesEl.appendChild(statusBarPreview.el);
+    previewEl.appendChild(examplesEl);
+
+    this.containerEl.appendChild(previewEl);
+
+    this.addToggleSetting(
+      "Keep live preview visible",
+      "Keep the preview pinned while you scroll through the settings.",
+      () => this.plugin.settings.previewSticky,
+      async (value) => {
+        this.plugin.settings.previewSticky = value;
+        await this.plugin.saveSettings();
+        this.updatePreviewSticky();
+      }
+    );
 
     const buildInfoEl = activeDocument.createElement("div");
     buildInfoEl.className = "section-meter-settings-preview-build";
     buildInfoEl.textContent = createBuildInfoLabel(this.plugin.manifest.version);
-    previewEl.appendChild(buildInfoEl);
+    this.containerEl.appendChild(buildInfoEl);
+  }
 
-    const gridEl = activeDocument.createElement("div");
-    gridEl.className = "section-meter-settings-preview-grid";
-    previewEl.appendChild(gridEl);
-
-    const badgePreview = createSettingsPreviewCard(
-      "Heading badges",
-      formatReadingTime(PREVIEW_WORD_COUNT, PREVIEW_CHARACTER_COUNT, {
-        wordsPerMinute: settings.wordsPerMinute,
-        showWords: settings.showWords,
-        showTiming: settings.showTiming,
-        showCharacters: settings.showCharacters,
-        compactMode: settings.compactMode,
-        showTimeAsMinutesOnly: settings.showTimeAsMinutesOnly,
-        labelSeparator: settings.labelSeparator
-      }),
-      "Shown beside headings and the note title."
+  private addCompactLabelSettings(): void {
+    this.addTextSetting(
+      "Compact words label",
+      "Suffix used for word counts in compact mode. Defaults to w.",
+      DEFAULT_SETTINGS.compactWordsLabel,
+      () => this.plugin.settings.compactWordsLabel,
+      async (value) => {
+        this.plugin.settings.compactWordsLabel = value.trim() || DEFAULT_SETTINGS.compactWordsLabel;
+        await this.plugin.saveSettings();
+      },
+      { updatePreviewAfterChange: true }
     );
-    this.badgePreviewValueEl = badgePreview.valueEl;
-    gridEl.appendChild(badgePreview.cardEl);
-
-    const statusBarPreview = createSettingsPreviewCard(
-      "Status bar",
-      createStatusBarPreviewLabel(settings),
-      "Shown in Obsidian's bottom status bar."
+    this.addTextSetting(
+      "Compact characters label",
+      "Label used for character counts in compact mode. Defaults to char.",
+      DEFAULT_SETTINGS.compactCharactersLabel,
+      () => this.plugin.settings.compactCharactersLabel,
+      async (value) => {
+        this.plugin.settings.compactCharactersLabel = value.trim()
+          || DEFAULT_SETTINGS.compactCharactersLabel;
+        await this.plugin.saveSettings();
+      },
+      { updatePreviewAfterChange: true }
     );
-    this.statusBarPreviewValueEl = statusBarPreview.valueEl;
-    gridEl.appendChild(statusBarPreview.cardEl);
+    this.addTextSetting(
+      "Compact minutes label",
+      "Suffix used for minute estimates in compact mode. Defaults to m.",
+      DEFAULT_SETTINGS.compactMinutesLabel,
+      () => this.plugin.settings.compactMinutesLabel,
+      async (value) => {
+        this.plugin.settings.compactMinutesLabel = value.trim() || DEFAULT_SETTINGS.compactMinutesLabel;
+        await this.plugin.saveSettings();
+      },
+      { updatePreviewAfterChange: true }
+    );
+  }
 
-    this.containerEl.appendChild(previewEl);
+  private updatePreviewSticky(): void {
+    this.previewEl?.classList.toggle(
+      "section-meter-settings-preview-static",
+      !this.plugin.settings.previewSticky
+    );
   }
 
   private updateDisplayPreview(): void {
@@ -706,14 +869,19 @@ class SectionMeterSettingTab extends PluginSettingTab {
           showTiming: settings.showTiming,
           showCharacters: settings.showCharacters,
           compactMode: settings.compactMode,
+          compactWordsLabel: settings.compactWordsLabel,
+          compactCharactersLabel: settings.compactCharactersLabel,
+          compactMinutesLabel: settings.compactMinutesLabel,
           showTimeAsMinutesOnly: settings.showTimeAsMinutesOnly,
           labelSeparator: settings.labelSeparator
         }
       );
     }
 
-    if (this.statusBarPreviewValueEl) {
-      this.statusBarPreviewValueEl.textContent = createStatusBarPreviewLabel(settings);
+    if (this.statusBarPreviewContentEl) {
+      this.statusBarPreviewContentEl.replaceChildren(
+        ...createSettingsStatusBarParts(settings)
+      );
     }
   }
 
@@ -824,53 +992,117 @@ function createBuildInfoLabel(version: string): string {
     : `Section Meter ${version}`;
 }
 
-function createSettingsPreviewCard(
-  title: string,
-  value: string,
-  caption: string
-): { cardEl: HTMLElement; valueEl: HTMLElement } {
-  const cardEl = activeDocument.createElement("div");
-  cardEl.className = "section-meter-settings-preview-card";
+function createSettingsHeadingPreview(
+  settings: SectionMeterSettings
+): { el: HTMLElement; valueEl: HTMLElement } {
+  const el = activeDocument.createElement("div");
+  el.className = "section-meter-settings-preview-example";
 
-  const titleEl = activeDocument.createElement("div");
-  titleEl.className = "section-meter-settings-preview-card-title";
-  titleEl.textContent = title;
-  cardEl.appendChild(titleEl);
+  const labelEl = activeDocument.createElement("div");
+  labelEl.className = "section-meter-settings-preview-example-label";
+  labelEl.textContent = "Heading badge";
+  el.appendChild(labelEl);
 
-  const valueEl = activeDocument.createElement("div");
-  valueEl.className = "section-meter-settings-preview-card-value";
-  valueEl.textContent = value;
-  cardEl.appendChild(valueEl);
+  const headingEl = activeDocument.createElement("div");
+  headingEl.className = "section-meter-settings-preview-heading-sample";
+  const markerEl = activeDocument.createElement("span");
+  markerEl.className = "section-meter-settings-preview-heading-marker";
+  markerEl.textContent = "#";
+  headingEl.appendChild(markerEl);
 
-  const captionEl = activeDocument.createElement("div");
-  captionEl.className = "section-meter-settings-preview-card-caption";
-  captionEl.textContent = caption;
-  cardEl.appendChild(captionEl);
+  const textEl = activeDocument.createElement("span");
+  textEl.textContent = "Example heading";
+  headingEl.appendChild(textEl);
 
-  return { cardEl, valueEl };
+  const badgeEl = createReadingTimeBadge(
+    createPreviewHeadingLabel(settings),
+    PREVIEW_WORD_COUNT,
+    PREVIEW_CHARACTER_COUNT,
+    estimateSeconds(PREVIEW_WORD_COUNT, settings.wordsPerMinute),
+    null,
+    "section-meter-settings-preview-badge",
+    false,
+    "Heading badge preview"
+  );
+  const valueEl = badgeEl.querySelector<HTMLElement>(".section-meter-badge-label");
+  if (!valueEl) {
+    throw new Error("Heading badge preview label was not created");
+  }
+  headingEl.appendChild(badgeEl);
+  el.appendChild(headingEl);
+
+  return { el, valueEl };
 }
 
-function createStatusBarPreviewLabel(settings: SectionMeterSettings): string {
-  const parts: string[] = [];
-  const label = formatReadingTime(PREVIEW_WORD_COUNT, PREVIEW_CHARACTER_COUNT, {
+function createPreviewHeadingLabel(settings: SectionMeterSettings): string {
+  return formatReadingTime(PREVIEW_WORD_COUNT, PREVIEW_CHARACTER_COUNT, {
     wordsPerMinute: settings.wordsPerMinute,
-    showWords: settings.showStatusBarWords,
-    showTiming: settings.showStatusBarTiming,
-    showCharacters: settings.showStatusBarCharacters,
+    showWords: settings.showWords,
+    showTiming: settings.showTiming,
+    showCharacters: settings.showCharacters,
     compactMode: settings.compactMode,
+    compactWordsLabel: settings.compactWordsLabel,
+    compactCharactersLabel: settings.compactCharactersLabel,
+    compactMinutesLabel: settings.compactMinutesLabel,
     showTimeAsMinutesOnly: settings.showTimeAsMinutesOnly,
     labelSeparator: settings.labelSeparator
   });
+}
+
+function createSettingsStatusBarPreview(
+  settings: SectionMeterSettings
+): { el: HTMLElement; contentEl: HTMLElement } {
+  const el = activeDocument.createElement("div");
+  el.className = "section-meter-settings-preview-example";
+
+  const labelEl = activeDocument.createElement("div");
+  labelEl.className = "section-meter-settings-preview-example-label";
+  labelEl.textContent = "Status bar";
+  el.appendChild(labelEl);
+
+  const barEl = activeDocument.createElement("div");
+  barEl.className = "section-meter-settings-preview-statusbar";
+  const contentEl = activeDocument.createElement("span");
+  contentEl.className = "section-meter-settings-preview-statusbar-content";
+  barEl.appendChild(contentEl);
+  el.appendChild(barEl);
+  contentEl.replaceChildren(...createSettingsStatusBarParts(settings));
+
+  return { el, contentEl };
+}
+
+function createSettingsStatusBarParts(settings: SectionMeterSettings): HTMLElement[] {
+  const previewStats: SelectionStats = {
+    wordCount: PREVIEW_WORD_COUNT,
+    characterCount: PREVIEW_CHARACTER_COUNT,
+    seconds: estimateSeconds(PREVIEW_WORD_COUNT, settings.wordsPerMinute),
+    label: "",
+    target: null
+  };
+  const parts: HTMLElement[] = [];
 
   if (settings.showStatusBarNoteStats) {
-    parts.push(`Note: ${label}`);
+    parts.push(createStatusBarStatsEl("Note", previewStats, settings));
   }
 
   if (settings.showStatusBarSelectionStats) {
-    parts.push(`Selection: ${label}`);
+    const selectionPart = activeDocument.createElement("span");
+    selectionPart.className = "section-meter-settings-preview-statusbar-segment";
+    if (parts.length > 0) {
+      selectionPart.appendChild(createStatusBarSeparatorEl());
+    }
+    selectionPart.appendChild(createStatusBarStatsEl("Selection", previewStats, settings));
+    parts.push(selectionPart);
   }
 
-  return parts.length > 0 ? parts.join(" | ") : "Only active section targets appear";
+  if (parts.length === 0) {
+    const emptyEl = activeDocument.createElement("span");
+    emptyEl.className = "section-meter-settings-preview-statusbar-empty";
+    emptyEl.textContent = "Only active section targets appear";
+    parts.push(emptyEl);
+  }
+
+  return parts;
 }
 
 type SelectionStats = Pick<
@@ -1014,6 +1246,18 @@ function normalizeSettings(settings: StoredSettings): SectionMeterSettings {
     wordsPerMinute: normalizeWordsPerMinute(settings.wordsPerMinute),
     ...displaySettings,
     compactMode: normalizeBoolean(settings.compactMode, DEFAULT_SETTINGS.compactMode),
+    compactWordsLabel: normalizeCompactLabel(
+      settings.compactWordsLabel,
+      DEFAULT_SETTINGS.compactWordsLabel
+    ),
+    compactCharactersLabel: normalizeCompactLabel(
+      settings.compactCharactersLabel,
+      DEFAULT_SETTINGS.compactCharactersLabel
+    ),
+    compactMinutesLabel: normalizeCompactLabel(
+      settings.compactMinutesLabel,
+      DEFAULT_SETTINGS.compactMinutesLabel
+    ),
     showTimeAsMinutesOnly: normalizeBoolean(
       settings.showTimeAsMinutesOnly,
       DEFAULT_SETTINGS.showTimeAsMinutesOnly
@@ -1048,7 +1292,12 @@ function normalizeSettings(settings: StoredSettings): SectionMeterSettings {
     ),
     targetProgressLabelStyle: normalizeTargetProgressLabelStyle(
       settings.targetProgressLabelStyle
-    )
+    ),
+    mobileStickySectionMeter: normalizeBoolean(
+      settings.mobileStickySectionMeter,
+      DEFAULT_SETTINGS.mobileStickySectionMeter
+    ),
+    previewSticky: normalizeBoolean(settings.previewSticky, DEFAULT_SETTINGS.previewSticky)
   };
 }
 
@@ -1087,6 +1336,9 @@ function formatConfiguredStats(
     showTiming: settings.showStatusBarTiming,
     showCharacters: settings.showStatusBarCharacters,
     compactMode: settings.compactMode,
+    compactWordsLabel: settings.compactWordsLabel,
+    compactCharactersLabel: settings.compactCharactersLabel,
+    compactMinutesLabel: settings.compactMinutesLabel,
     showTimeAsMinutesOnly: settings.showTimeAsMinutesOnly,
     labelSeparator: settings.labelSeparator
   });
@@ -1112,9 +1364,7 @@ function createReadingTimeBadge(
   if (target) {
     badge.classList.add("section-meter-target-badge");
     badge.classList.add(getTargetProgressStateClass(target));
-    badge.appendChild(createInlineTargetSeparatorEl());
-    badge.appendChild(createTargetLabelEl(target));
-    badge.appendChild(createTargetProgressEl(target));
+    badge.appendChild(createBadgeTargetGroupEl(target));
   }
 
   badge.setAttribute(
@@ -1138,6 +1388,20 @@ function createReadingTimeBadge(
   }
 
   return badge;
+}
+
+function createBadgeTargetGroupEl(target: WritingTargetProgress): HTMLElement {
+  const groupEl = activeDocument.createElement("span");
+  groupEl.className = "section-meter-target-group";
+
+  const captionEl = activeDocument.createElement("span");
+  captionEl.className = "section-meter-target-caption";
+  captionEl.textContent = "Target";
+  groupEl.appendChild(captionEl);
+  groupEl.appendChild(createTargetLabelEl(target));
+  groupEl.appendChild(createTargetProgressEl(target));
+
+  return groupEl;
 }
 
 function createStatusBarStatsEl(
@@ -1348,6 +1612,14 @@ function normalizeSeparator(value: unknown): string {
   }
 
   return Array.from(value.trim())[0] ?? DEFAULT_SETTINGS.labelSeparator;
+}
+
+function normalizeCompactLabel(value: unknown, fallback: string): string {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  return value.trim() || fallback;
 }
 
 function normalizeBoolean(value: unknown, fallback: boolean): boolean {

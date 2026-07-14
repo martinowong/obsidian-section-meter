@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Section Meter mobile preview</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --canvas: #ffffff;
+        --text: #353535;
+        --muted: #727272;
+        --faint: #a4a4a4;
+        --line: #e4e4e4;
+        --surface: #f6f6f6;
+        --track: #e8e8e8;
+        --progress: #8e8e8e;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--canvas);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .phone {
+        position: relative;
+        width: min(100%, 430px);
+        min-height: 100vh;
+        margin: 0 auto;
+        padding: 42px 24px 156px;
+      }
+
+      h1, h2, p { margin: 0; }
+
+      h1 {
+        font-size: clamp(2.3rem, 11vw, 3rem);
+        letter-spacing: -0.055em;
+        line-height: 1.04;
+      }
+
+      h2 {
+        margin-top: 48px;
+        font-size: clamp(1.9rem, 9vw, 2.45rem);
+        letter-spacing: -0.045em;
+        line-height: 1.08;
+      }
+
+      .meter {
+        margin-top: 14px;
+        padding: 11px 12px 10px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 0.94rem;
+        line-height: 1.25;
+      }
+
+      .meter-values {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 14px;
+        align-items: baseline;
+        padding: 0 1px 10px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .meter-values span + span::before {
+        content: "";
+        display: inline-block;
+        width: 3px;
+        height: 3px;
+        margin: 0 11px 3px 0;
+        border-radius: 50%;
+        background: var(--faint);
+      }
+
+      .target {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 4px 12px;
+        align-items: baseline;
+        padding: 10px 1px 0;
+      }
+
+      .target-label { color: var(--faint); }
+
+      .target-values {
+        color: var(--text);
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+      }
+
+      .progress {
+        grid-column: 1 / -1;
+        height: 4px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--track);
+      }
+
+      .progress > span {
+        display: block;
+        width: 35%;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--progress);
+      }
+
+      .body-copy {
+        margin-top: 28px;
+        padding-top: 2px;
+        border-top: 1px solid var(--line);
+        color: #4a4a4a;
+        font-family: Georgia, serif;
+        font-size: 1.08rem;
+        line-height: 1.65;
+      }
+
+      .separator { color: var(--line); }
+
+      .current-section-meter {
+        position: fixed;
+        z-index: 2;
+        bottom: 18px;
+        left: 50%;
+        width: min(calc(100% - 32px), 398px);
+        padding: 10px 12px 9px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--canvas) 94%, transparent);
+        box-shadow: 0 8px 24px rgb(0 0 0 / 0.1);
+        backdrop-filter: blur(12px);
+        transform: translateX(-50%);
+      }
+
+      .current-section-name {
+        overflow: hidden;
+        color: var(--text);
+        font-size: 0.78rem;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .current-section-details {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 5px 12px;
+        align-items: baseline;
+        margin-top: 5px;
+        color: var(--muted);
+        font-size: 0.76rem;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .current-section-target {
+        color: var(--text);
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .current-section-progress {
+        grid-column: 1 / -1;
+        height: 4px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--track);
+      }
+
+      .current-section-progress > span {
+        display: block;
+        width: 46%;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--progress);
+      }
+
+      .note-meter {
+        display: inline-flex;
+        width: fit-content;
+        padding-block: 7px;
+      }
+
+      .note-meter .meter-values {
+        padding: 0 1px;
+        border: 0;
+      }
+
+      @media (min-width: 600px) {
+        body { background: #efefef; }
+        .phone { background: var(--canvas); box-shadow: 0 18px 60px rgb(0 0 0 / 0.08); }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="phone">
+      <h1>script</h1>
+
+      <div class="meter" aria-label="663 characters. 0 minutes 42 seconds. Target: 0 minutes 42 seconds of 2 minutes.">
+        <div class="meter-values">
+          <span>663 characters</span>
+          <span>0m 42s</span>
+        </div>
+        <div class="target">
+          <span class="target-label">Target</span>
+          <span class="target-values">0m 42s <span class="separator">/</span> 2m 00s</span>
+          <div class="progress" aria-hidden="true"><span></span></div>
+        </div>
+      </div>
+
+      <p class="body-copy">target: 2m</p>
+
+      <h2>price increases for tech</h2>
+      <div class="meter note-meter" aria-label="883 characters. 0 minutes 55 seconds.">
+        <div class="meter-values">
+          <span>883 characters</span>
+          <span>0m 55s</span>
+        </div>
+      </div>
+
+      <aside class="current-section-meter" aria-label="Current section: Proportions. 883 characters, 0 minutes 55 seconds. Target 0 minutes 55 seconds of 2 minutes.">
+        <div class="current-section-name">Proportions</div>
+        <div class="current-section-details">
+          <span>883 characters <span class="separator">·</span> 0m 55s</span>
+          <span class="current-section-target">Target 0m 55s / 2m</span>
+          <div class="current-section-progress" aria-hidden="true"><span></span></div>
+        </div>
+      </aside>
+    </main>
+  </body>
+</html>

@@ -14,6 +14,9 @@ export interface SectionMeterSettings {
   showTiming: boolean;
   showCharacters: boolean;
   compactMode: boolean;
+  compactWordsLabel: string;
+  compactCharactersLabel: string;
+  compactMinutesLabel: string;
   showTimeAsMinutesOnly: boolean;
   countCharactersWithSpaces: boolean;
   labelSeparator: string;
@@ -26,6 +29,8 @@ export interface SectionMeterSettings {
   showStatusBarCharacters: boolean;
   targetOverageWarningPercent: number;
   targetProgressLabelStyle: TargetProgressLabelStyle;
+  mobileStickySectionMeter: boolean;
+  previewSticky: boolean;
 }
 
 export interface HeadingSection {
@@ -323,19 +328,26 @@ export function formatReadingTime(
     | "showTiming"
     | "showCharacters"
     | "compactMode"
+    | "compactWordsLabel"
+    | "compactCharactersLabel"
+    | "compactMinutesLabel"
     | "showTimeAsMinutesOnly"
     | "labelSeparator"
   >
 ): string {
+  const wordCompactLabel = normalizeCompactLabel(settings.compactWordsLabel, "w");
+  const characterCompactLabel = normalizeCompactLabel(settings.compactCharactersLabel, "char");
+  const minuteCompactLabel = normalizeCompactLabel(settings.compactMinutesLabel, "m");
   const wordLabel = settings.compactMode
-    ? `${wordCount}w`
+    ? `${wordCount}${wordCompactLabel}`
     : `${wordCount} ${wordCount === 1 ? "word" : "words"}`;
   const characterLabel = settings.compactMode
-    ? `${characterCount} chars`
+    ? `${characterCount} ${characterCompactLabel}`
     : `${characterCount} ${characterCount === 1 ? "character" : "characters"}`;
   const timeLabel = formatDisplaySeconds(
     estimateSeconds(wordCount, settings.wordsPerMinute),
-    settings.compactMode || settings.showTimeAsMinutesOnly
+    settings.compactMode || settings.showTimeAsMinutesOnly,
+    settings.compactMode ? minuteCompactLabel : "m"
   );
   const parts: string[] = [];
 
@@ -368,7 +380,7 @@ export function formatSeconds(totalSeconds: number): string {
   return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
 }
 
-function formatDisplaySeconds(totalSeconds: number, minutesOnly: boolean): string {
+function formatDisplaySeconds(totalSeconds: number, minutesOnly: boolean, minuteLabel: string): string {
   const safeSeconds = Number.isFinite(totalSeconds) && totalSeconds > 0
     ? Math.ceil(totalSeconds)
     : 0;
@@ -381,7 +393,12 @@ function formatDisplaySeconds(totalSeconds: number, minutesOnly: boolean): strin
     return `${safeSeconds}s`;
   }
 
-  return `${Math.round(safeSeconds / 60)}m`;
+  return `${Math.round(safeSeconds / 60)}${minuteLabel}`;
+}
+
+function normalizeCompactLabel(value: string, fallback: string): string {
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : fallback;
 }
 
 function stripMarkdownToReadableText(markdown: string): string {

@@ -2,9 +2,10 @@
 
 ## 0.12.0
 
-- Added a sticky live preview for badge and status-bar settings so display changes are easier to understand while adjusting options.
-- Added compact display mode with shorter word, character, and reading-time labels.
-- Added a minutes-only reading-time option that rounds to the nearest minute while keeping sub-minute estimates in seconds.
+- Improved the live settings preview: it is now more compact and more closely matches how heading badges and the status bar appear in Obsidian.
+- Added a compact display mode with shorter labels for word counts, character counts, and reading times. The labels can be customized.
+- Added a minutes-only option for a cleaner reading-time display.
+- Beta: added an optional sticky meter for mobile that shows the section currently in view, its stats, and its writing target while you scroll. Enable it in the Mobile settings if you would like to try it.
 
 ## 0.11.7
 

@@ -35,6 +35,20 @@
   color: var(--text-normal);
 }
 
+.section-meter-target-group {
+  display: inline-flex;
+  min-inline-size: 0;
+  align-items: center;
+  gap: 0.4em;
+  padding-inline-start: 0.55em;
+  border-inline-start: 1px solid var(--background-modifier-border);
+}
+
+.section-meter-target-caption {
+  color: var(--text-faint);
+  font-size: 0.9em;
+}
+
 .section-meter-target-progress {
   display: inline-flex;
   inline-size: 3.5em;
@@ -50,6 +64,10 @@
   block-size: 100%;
   border-radius: inherit;
   background: var(--text-faint);
+}
+
+.section-meter-badge > .section-meter-target-separator {
+  display: none;
 }
 
 .section-meter-target-start .section-meter-target-progress-fill {
@@ -123,6 +141,41 @@ body.is-mobile .section-meter-title-badge,
   line-height: 1.3;
 }
 
+body.is-mobile .section-meter-badge.section-meter-target-badge,
+.is-mobile .section-meter-badge.section-meter-target-badge {
+  display: inline-grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.4em;
+  inline-size: min(100%, 28rem);
+  margin-block-start: 0.35em;
+  padding: 0.35em 0.5em 0.45em;
+  vertical-align: top;
+  white-space: normal;
+}
+
+body.is-mobile .section-meter-target-group,
+.is-mobile .section-meter-target-group {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.35em 0.6em;
+  align-items: baseline;
+  padding: 0.4em 0 0;
+  border-block-start: 1px solid var(--background-modifier-border);
+  border-inline-start: 0;
+}
+
+body.is-mobile .section-meter-target-label,
+.is-mobile .section-meter-target-label {
+  text-align: end;
+  white-space: nowrap;
+}
+
+body.is-mobile .section-meter-target-progress,
+.is-mobile .section-meter-target-progress {
+  grid-column: 1 / -1;
+  inline-size: 100%;
+}
+
 @media (max-width: 700px) {
   .section-meter-title-row {
     position: static;
@@ -141,6 +194,37 @@ body.is-mobile .section-meter-title-badge,
     overflow-wrap: anywhere;
     line-height: 1.3;
   }
+
+  .section-meter-badge.section-meter-target-badge {
+    display: inline-grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.4em;
+    inline-size: min(100%, 28rem);
+    margin-block-start: 0.35em;
+    padding: 0.35em 0.5em 0.45em;
+    vertical-align: top;
+    white-space: normal;
+  }
+
+  .section-meter-target-group {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.35em 0.6em;
+    align-items: baseline;
+    padding: 0.4em 0 0;
+    border-block-start: 1px solid var(--background-modifier-border);
+    border-inline-start: 0;
+  }
+
+  .section-meter-target-label {
+    text-align: end;
+    white-space: nowrap;
+  }
+
+  .section-meter-target-progress {
+    grid-column: 1 / -1;
+    inline-size: 100%;
+  }
 }
 
 .section-meter-setting-guidance {
@@ -154,70 +238,124 @@ body.is-mobile .section-meter-title-badge,
   position: sticky;
   inset-block-start: 0;
   z-index: 5;
-  margin-block: 0 1.25rem;
-  padding: 1rem;
+  margin-block: 0 0.55rem;
+  padding: 0.65rem 0.75rem;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 14px;
+  border-radius: 10px;
   background:
     linear-gradient(135deg, var(--background-modifier-hover), transparent 42%),
     var(--background-secondary);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.07);
+}
+
+.section-meter-settings-preview-static {
+  position: static;
 }
 
 .section-meter-settings-preview-heading {
-  margin-block-end: 0.25rem;
+  margin-block-end: 0.45rem;
   color: var(--text-normal);
-  font-size: var(--font-ui-medium);
+  font-size: var(--font-ui-small);
   font-weight: 700;
   letter-spacing: 0.01em;
 }
 
 .section-meter-settings-preview-build {
-  margin-block-end: 0.75rem;
+  margin-block: 0.15rem 0.65rem;
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
   font-weight: 600;
   letter-spacing: 0.01em;
 }
 
-.section-meter-settings-preview-grid {
+.section-meter-settings-preview-examples {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.55rem;
+  align-items: start;
 }
 
-.section-meter-settings-preview-card {
-  padding: 0.85rem 0.9rem;
+.section-meter-settings-preview-example {
+  min-inline-size: 0;
+  padding: 0.55rem 0.65rem;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 12px;
+  border-radius: 8px;
   background: var(--background-primary);
 }
 
-.section-meter-settings-preview-card-title {
-  margin-block-end: 0.45rem;
+.section-meter-settings-preview-example-label {
+  margin-block-end: 0.35rem;
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
   font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.02em;
 }
 
-.section-meter-settings-preview-card-value {
+.section-meter-settings-preview-heading-sample {
   display: flex;
-  align-items: center;
-  min-block-size: 3.2rem;
+  min-inline-size: 0;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.3rem;
   color: var(--text-normal);
-  font-size: 1.35rem;
-  font-weight: 750;
-  line-height: 1.18;
-  overflow-wrap: anywhere;
+  font-size: var(--font-ui-medium);
+  font-weight: 650;
+  line-height: 1.25;
 }
 
-.section-meter-settings-preview-card-caption {
-  margin-block-start: 0.55rem;
+.section-meter-settings-preview-heading-sample > span:not(
+  .section-meter-settings-preview-heading-marker
+) {
+  min-inline-size: max-content;
+  white-space: nowrap;
+}
+
+.section-meter-settings-preview-heading-marker {
+  color: var(--text-faint);
+  font-weight: 500;
+}
+
+.section-meter-settings-preview-badge {
+  flex: none;
+  margin-inline-start: 0.15rem;
+}
+
+.section-meter-settings-preview-statusbar {
+  display: flex;
+  min-block-size: 1.65rem;
+  align-items: center;
+  padding: 0.25rem 0.4rem;
+  overflow: hidden;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 5px;
   color: var(--text-muted);
+  background: var(--background-primary-alt);
   font-size: var(--font-ui-smaller);
-  line-height: 1.35;
+}
+
+.section-meter-settings-preview-statusbar-content {
+  display: inline-flex;
+  flex-wrap: wrap;
+  min-inline-size: 0;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.section-meter-settings-preview-statusbar .section-meter-status-bar-part {
+  flex: none;
+  white-space: nowrap;
+}
+
+.section-meter-settings-preview-statusbar-segment {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+
+.section-meter-settings-preview-statusbar-empty {
+  color: var(--text-faint);
 }
 
 .section-meter-status-bar {
@@ -254,4 +392,68 @@ body.is-mobile .section-meter-title-badge,
 
 .section-meter-status-bar-selection-hidden {
   display: none;
+}
+
+.section-meter-mobile-current-section {
+  display: none;
+}
+
+body.is-mobile .section-meter-mobile-current-section,
+.is-mobile .section-meter-mobile-current-section {
+  position: fixed;
+  z-index: 30;
+  inset-inline: 0.8rem;
+  inset-block-end: max(0.8rem, env(safe-area-inset-bottom));
+  display: grid;
+  gap: 0.28rem;
+  max-inline-size: 32rem;
+  margin-inline: auto;
+  padding: 0.55rem 0.65rem 0.5rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  color: var(--text-muted);
+  background: var(--background-primary);
+  box-shadow: 0 7px 20px rgba(0, 0, 0, 0.14);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.25;
+  pointer-events: none;
+}
+
+.section-meter-mobile-current-section-heading {
+  overflow: hidden;
+  color: var(--text-normal);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.section-meter-mobile-current-section-details {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.3rem 0.6rem;
+  align-items: baseline;
+  min-inline-size: 0;
+}
+
+.section-meter-mobile-current-section-stats {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.section-meter-mobile-current-section-target {
+  color: var(--text-normal);
+  text-align: end;
+  white-space: nowrap;
+}
+
+.section-meter-mobile-current-section-progress {
+  grid-column: 1 / -1;
+  inline-size: 100%;
+  block-size: 0.25rem;
+}
+
+.section-meter-mobile-current-section-hidden {
+  display: none !important;
 }

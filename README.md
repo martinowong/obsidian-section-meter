@@ -1,20 +1,25 @@
 # Section Writing Stats
 
-**Live word counts, reading time, and writing goals for every section in Obsidian.**
+Live word counts, character counts, reading time, and writing-target progress for every section of an Obsidian note.
 
-Section Writing Stats is an Obsidian word-count and reading-time plugin that shows live statistics beside your note title and every Markdown heading. See the word count, character count, and estimated reading time for each section without leaving the editor. You can also set writing goals for complete notes or individual sections and follow your progress as you write.
+Section Writing Stats places a small, continuously updated badge beside the note title and each Markdown heading. It helps you check the length of a chapter, scene, article section, or complete note without interrupting your writing.
+
+[Install from Obsidian Community Plugins](https://community.obsidian.md/plugins/section-meter) · [View the latest release](https://github.com/martinowong/obsidian-section-meter/releases/latest)
 
 ![Section Writing Stats showing live word counts, character counts, reading time, and writing-target progress beside headings in Obsidian](docs/images/section-writing-stats-editor.png)
 
-Created by Martino Wong with Codex.
+## At a glance
 
-## How it works
+- See live statistics beside headings, in the note title or in the status bar
+- Track words, characters, and estimated reading time.
+- Add writing targets (words, characters, or reading time) for the whole note or an individual section.
+- Customize which statistics and labels are displayed.
 
-Each heading gets a small badge showing statistics for the section beneath it.
+## How sections are counted
 
-A section continues until the next heading of the same or a higher level. This means a parent heading includes everything inside its smaller subheadings.
+A section begins at a heading and ends immediately before the next heading of the same or a higher level.
 
-For example:
+Parent headings include their nested subsections. In this example, **Chapter one** includes the introduction and both scenes, while each scene badge counts only that scene:
 
 ```md
 # Chapter one
@@ -30,40 +35,22 @@ Scene text...
 More text...
 ```
 
-The badge beside **Chapter one** counts the introduction and both scenes. Each scene heading counts only its own section.
-
-## Features
-
-- Statistics beside headings from `#` to `######`
-- Whole-note statistics beside the note title
-- Word, character, and estimated reading-time counts
-- Whole-note and selected-text statistics in the status bar
-- Section statistics for selected text
-- Writing targets for a whole note or individual sections
-- Command-palette actions to add, update, or remove writing targets
-- Progress bars that make targets easy to follow
-- Adjustable reading speed
-- Optional spaces in character counts
-- Customizable labels and separators
-- Options to hide empty or very short sections
-- Fast, local counting with no text sent anywhere
-
-Section Writing Stats focuses on readable prose. It leaves out frontmatter, code blocks, inline code, embeds, comments, and HTML when calculating statistics.
-
-## What you can use it for
-
-- Count the words or characters beneath each heading in an Obsidian note
-- See the estimated reading time of a complete note or individual section
-- Set word-count, character-count, or reading-time goals for a draft
-- Follow writing-target progress beside headings and in the status bar
-- Check statistics for selected text while editing
-- Keep section statistics visible while writing on mobile with the optional Beta meter
+This follows the structure of the Markdown document, so lower-level headings remain part of the section above them.
 
 ## Writing targets
 
-Add a `Target:` line to set a writing goal.
+The easiest way to manage a target is through the command palette. Place the cursor in the relevant section and run one of these commands:
 
-Place it before the first heading to create a target for the whole note:
+- **Set or edit whole-note writing target**
+- **Set or edit current-section writing target**
+- **Remove whole-note writing target**
+- **Remove current-section writing target**
+
+Choose words, characters, or reading time in the target dialog. Existing targets are filled in automatically when you edit them.
+
+### Targets in Markdown
+
+Targets are stored as ordinary `Target:` lines, so they remain visible and portable with the note. A whole-note target goes before the first heading, after YAML frontmatter if the note has any:
 
 ```md
 Target: 1200 words
@@ -73,7 +60,7 @@ Target: 1200 words
 Start writing here...
 ```
 
-Place it inside a section to create a target for that heading:
+A section target goes beneath its heading:
 
 ```md
 # Introduction
@@ -89,73 +76,77 @@ Target: 1800 characters
 Background text...
 ```
 
-You can create targets using:
+Supported formats include:
 
-- Words: `Target: 250 words`
-- Characters: `Target: 1800 characters`
-- Reading time: `Target: 3 min`, `Target: 3m`, or `Target: 2m 30s`
+- `Target: 250 words`
+- `Target: 1800 characters`
+- `Target: 3 min`
+- `Target: 3m`
+- `Target: 2m 30s`
 
-Target lines are not included in your statistics.
+Target lines are excluded from the statistics. A parent target covers the complete parent section, including nested headings. A nested section can define its own target, which takes priority while the cursor is inside that section.
 
-A target on a parent heading covers its complete section, including smaller subheadings. It remains visible in the status bar while you work inside those subheadings. If a smaller section has its own target, that target takes priority while you are inside it.
+Progress bars update while you write. They change colour as the target approaches, turn green when it is reached, and turn red after the configured overage threshold.
 
-Progress bars change colour as you approach your target. They turn green when the target is reached and red when you pass the configured overage warning.
+## What is counted
 
-You can also manage targets without typing the syntax yourself. Open the command palette to set, edit, or remove the target for the whole note or the section containing your cursor.
+Section Writing Stats is designed to measure readable prose rather than Markdown syntax.
 
-## Customization
+It counts text in paragraphs, lists, blockquotes, links, and table cells. It excludes:
 
-The Section Writing Stats settings let you choose:
+- YAML frontmatter
+- Fenced and inline code
+- Embeds
+- Comments and HTML
+- Writing-target lines
 
-- Which statistics appear beside headings
-- Which statistics appear in the status bar
-- Whether character counts include spaces
-- Your preferred reading speed
+Character counts can include or exclude spaces. Reading-time estimates use an adjustable words-per-minute setting.
+
+## Display and settings
+
+You can configure:
+
+- Word count, character count, and reading-time visibility
+- Heading badges, title badges, and status-bar statistics
+- Compact labels and custom separators
 - Count-based or percentage-based target labels
-- When target overage warnings appear
-- The minimum section size required to show a badge
-- Whether badges appear for empty sections
+- Reading speed and character-count spacing
+- The target overage warning threshold
+- Whether empty or very short sections show badges
+- Whole-note and selected-text status-bar statistics
 
 ## Limitations
 
-Section Writing Stats currently works in the editor, not Reading view.
+- Statistics are shown in the editor, not Reading view.
+- Counts are based on fast Markdown cleanup rather than Obsidian's complete renderer. Content produced by other plugins, rendered transclusions, and complex mathematics may differ slightly from what is visible on screen.
 
-Counts are calculated using fast Markdown cleanup rather than Obsidian's complete renderer. Content generated by plugins such as Dataview, rendered transclusions, and complex mathematics may therefore produce slightly different results from what appears on screen.
+## Installation
 
-## Manual installation
+Install **Section Writing Stats** from **Settings → Community plugins → Browse** in Obsidian, or open its [Community Plugins page](https://community.obsidian.md/plugins/section-meter).
 
-Download or build the plugin, then copy these files into `.obsidian/plugins/section-meter` inside your vault:
+### Manual installation
 
-- `main.js`
-- `manifest.json`
-- `styles.css`
+Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/martinowong/obsidian-section-meter/releases/latest), then place them in:
 
-Restart Obsidian—or reload your installed plugins—then enable **Section Writing Stats** under **Community plugins**.
+```text
+.obsidian/plugins/section-meter/
+```
+
+Restart Obsidian—or reload the installed plugins—and enable **Section Writing Stats** under **Community plugins**.
 
 ## Development
 
-Install the dependencies:
-
 ```sh
 npm install
-```
-
-Run the tests:
-
-```sh
 npm test
-```
-
-Build the plugin:
-
-```sh
+npm run lint
 npm run build
 ```
 
-For local testing, copy or symlink this repository into your vault's `.obsidian/plugins/section-meter` directory. Build the plugin, then enable it in Obsidian.
+For local testing, copy or symlink the repository into `.obsidian/plugins/section-meter`, build the plugin, and enable it in Obsidian.
 
 ## License
 
-Section Writing Stats is available under the MIT License.
+Section Writing Stats is available under the [MIT License](LICENSE).
 
-It is an independent community plugin and is not affiliated with, endorsed by, or sponsored by Obsidian.
+Created by [Martino Wong](https://github.com/martinowong) with AI tools. This is an independent community plugin and is not affiliated with, endorsed by, or sponsored by Obsidian.

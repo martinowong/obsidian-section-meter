@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Made the Beta mobile target meter smaller and added a top or bottom position setting. The bottom position now stays above Obsidian's mobile command toolbar.
+- Fixed the mobile meter disappearing inside untargeted child headings or when a whole-note target was active.
+
 ## 1.0.1
 
 - Replaced the Beta mobile section card with a compact writing-target progress strip near the keyboard. Tap it to switch between percentage and current/target values.

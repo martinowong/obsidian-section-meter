@@ -31,6 +31,7 @@ import {
   formatReadingTime,
   formatWritingTargetCountLabel,
   getActiveSectionTargetAtPosition,
+  getActiveWritingTargetAtPosition,
   estimateSeconds,
   parseWritingTargetLine,
   shouldShowSummary,
@@ -62,6 +63,7 @@ const DEFAULT_SETTINGS: SectionMeterSettings = {
   targetOverageWarningPercent: 125,
   targetProgressLabelStyle: "count",
   mobileStickySectionMeter: false,
+  mobileMeterPosition: "bottom",
   previewSticky: true
 };
 const MIN_WORDS_PER_MINUTE = 100;
@@ -534,6 +536,7 @@ function createSectionMeterExtension(
   class SectionMeterViewPlugin implements PluginValue {
     decorations: DecorationSet;
     private summaries: SectionMeterSummary[];
+    private noteTarget: WritingTargetProgress | null;
     private selectionBadgeUpdateTimer: number | null = null;
     private selectionBadgeRefreshQueued = false;
     private applySelectionBadgeOverride = true;
@@ -542,11 +545,13 @@ function createSectionMeterExtension(
     private mobileMeterScrollHandler: (() => void) | null = null;
 
     constructor(view: EditorView) {
-      this.summaries = summarizeSectionReadingTimes(view.state.doc.toString(), getSettings());
+      const markdown = view.state.doc.toString();
+      this.summaries = summarizeSectionReadingTimes(markdown, getSettings());
+      this.noteTarget = summarizeNoteReadingTime(markdown, getSettings()).target;
       this.decorations = this.buildDecorations(view);
 
       if (getSettings().mobileStickySectionMeter) {
-        this.mobileMeterEl = createMobileSectionMeterEl();
+        this.mobileMeterEl = createMobileSectionMeterEl(getSettings().mobileMeterPosition);
         view.dom.appendChild(this.mobileMeterEl);
         this.mobileMeterScrollHandler = () => this.updateMobileMeter(view);
         this.mobileMeterScrollDom = view.scrollDOM;
@@ -557,7 +562,9 @@ function createSectionMeterExtension(
 
     update(update: ViewUpdate) {
       if (update.docChanged) {
-        this.summaries = summarizeSectionReadingTimes(update.state.doc.toString(), getSettings());
+        const markdown = update.state.doc.toString();
+        this.summaries = summarizeSectionReadingTimes(markdown, getSettings());
+        this.noteTarget = summarizeNoteReadingTime(markdown, getSettings()).target;
       }
 
       let shouldRebuildDecorations = update.docChanged || update.viewportChanged;
@@ -663,17 +670,18 @@ function createSectionMeterExtension(
         return;
       }
 
-      const summary = getSummaryAtViewportStart(
+      const target = getActiveWritingTargetAtPosition(
         this.summaries,
+        this.noteTarget,
         getPositionAtVisibleViewportTop(view)
       );
-      if (!summary?.target) {
+      if (!target) {
         this.mobileMeterEl.classList.add("section-meter-mobile-current-section-hidden");
         return;
       }
 
       this.mobileMeterEl.classList.remove("section-meter-mobile-current-section-hidden");
-      renderMobileSectionMeter(this.mobileMeterEl, summary.target);
+      renderMobileSectionMeter(this.mobileMeterEl, target);
     }
   }
 
@@ -688,24 +696,14 @@ function getPositionAtVisibleViewportTop(view: EditorView): number {
   return view.lineBlockAtHeight(documentHeight).from;
 }
 
-function getSummaryAtViewportStart(
-  summaries: SectionMeterSummary[],
-  position: number
-): SectionMeterSummary | null {
-  for (let index = summaries.length - 1; index >= 0; index--) {
-    if (summaries[index].from <= position) {
-      return summaries[index];
-    }
-  }
-
-  return null;
-}
-
-function createMobileSectionMeterEl(): HTMLElement {
-  const meterEl = activeDocument.createElement("button");
+function createMobileSectionMeterEl(
+  position: SectionMeterSettings["mobileMeterPosition"]
+): HTMLElement {
+  const meterEl = activeDocument.createEl("button");
   meterEl.className = "section-meter-mobile-current-section";
   meterEl.type = "button";
   meterEl.dataset.displayMode = "percentage";
+  meterEl.dataset.position = position;
   meterEl.setAttribute("aria-live", "off");
   meterEl.addEventListener("pointerdown", (event) => event.preventDefault());
   meterEl.addEventListener("click", () => {
@@ -724,14 +722,14 @@ function renderMobileSectionMeter(
   const progressEl = createTargetProgressEl(target);
   progressEl.classList.add("section-meter-mobile-current-section-progress");
 
-  const labelEl = activeDocument.createElement("span");
+  const labelEl = activeDocument.createSpan();
   labelEl.className = "section-meter-mobile-current-section-label";
 
-  const percentageEl = activeDocument.createElement("span");
+  const percentageEl = activeDocument.createSpan();
   percentageEl.className = "section-meter-mobile-current-section-percentage";
   percentageEl.textContent = `${Math.round(target.percent)}%`;
 
-  const countEl = activeDocument.createElement("span");
+  const countEl = activeDocument.createSpan();
   countEl.className = "section-meter-mobile-current-section-count";
   countEl.textContent = formatWritingTargetCountLabel(target);
 
@@ -977,13 +975,29 @@ class SectionMeterSettingTab extends PluginSettingTab {
     this.addHeading("Mobile");
     this.addToggleSetting(
       "Sticky current-section meter (Beta)",
-      "Beta: show writing-target progress near the keyboard while scrolling in the mobile editor. Tap the meter to switch between percentage and count.",
+      "Beta: show writing-target progress while scrolling in the mobile editor. Tap the meter to switch between percentage and count.",
       () => this.plugin.settings.mobileStickySectionMeter,
       async (value) => {
         this.plugin.settings.mobileStickySectionMeter = value;
         await this.plugin.saveSettings();
-      }
+      },
+      { updateAfterChange: true }
     );
+    if (this.plugin.settings.mobileStickySectionMeter) {
+      this.addDropdownSetting(
+        "Meter position",
+        "Place the meter above the mobile command toolbar or at the top of the editor.",
+        () => this.plugin.settings.mobileMeterPosition,
+        {
+          bottom: "Bottom (above toolbar)",
+          top: "Top of editor"
+        },
+        async (value) => {
+          this.plugin.settings.mobileMeterPosition = normalizeMobileMeterPosition(value);
+          await this.plugin.saveSettings();
+        }
+      );
+    }
 
     this.addHeading("Writing targets");
     this.addGuidanceSetting(
@@ -1025,7 +1039,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
   }
 
   private addReadingSpeedSetting(): void {
-    const readingSpeedGuidanceEl = activeDocument.createElement("div");
+    const readingSpeedGuidanceEl = activeDocument.createDiv();
     readingSpeedGuidanceEl.className = "section-meter-setting-guidance";
     readingSpeedGuidanceEl.textContent = getReadingSpeedGuidance(
       this.plugin.settings.wordsPerMinute
@@ -1051,20 +1065,20 @@ class SectionMeterSettingTab extends PluginSettingTab {
 
   private addDisplayPreview(): void {
     const settings = this.plugin.settings;
-    const previewEl = activeDocument.createElement("div");
+    const previewEl = activeDocument.createDiv();
     previewEl.className = [
       "section-meter-settings-preview",
       settings.previewSticky ? "" : "section-meter-settings-preview-static"
     ].filter(Boolean).join(" ");
     this.previewEl = previewEl;
 
-    const headerEl = activeDocument.createElement("div");
+    const headerEl = activeDocument.createDiv();
     headerEl.className = "section-meter-settings-preview-heading";
 
     headerEl.textContent = "Live preview";
     previewEl.appendChild(headerEl);
 
-    const examplesEl = activeDocument.createElement("div");
+    const examplesEl = activeDocument.createDiv();
     examplesEl.className = "section-meter-settings-preview-examples";
 
     const badgePreview = createSettingsHeadingPreview(settings);
@@ -1089,7 +1103,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
       }
     );
 
-    const buildInfoEl = activeDocument.createElement("div");
+    const buildInfoEl = activeDocument.createDiv();
     buildInfoEl.className = "section-meter-settings-preview-build";
     buildInfoEl.textContent = createBuildInfoLabel(this.plugin.manifest.version);
     this.containerEl.appendChild(buildInfoEl);
@@ -1277,22 +1291,22 @@ function createBuildInfoLabel(version: string): string {
 function createSettingsHeadingPreview(
   settings: SectionMeterSettings
 ): { el: HTMLElement; valueEl: HTMLElement } {
-  const el = activeDocument.createElement("div");
+  const el = activeDocument.createDiv();
   el.className = "section-meter-settings-preview-example";
 
-  const labelEl = activeDocument.createElement("div");
+  const labelEl = activeDocument.createDiv();
   labelEl.className = "section-meter-settings-preview-example-label";
   labelEl.textContent = "Heading badge";
   el.appendChild(labelEl);
 
-  const headingEl = activeDocument.createElement("div");
+  const headingEl = activeDocument.createDiv();
   headingEl.className = "section-meter-settings-preview-heading-sample";
-  const markerEl = activeDocument.createElement("span");
+  const markerEl = activeDocument.createSpan();
   markerEl.className = "section-meter-settings-preview-heading-marker";
   markerEl.textContent = "#";
   headingEl.appendChild(markerEl);
 
-  const textEl = activeDocument.createElement("span");
+  const textEl = activeDocument.createSpan();
   textEl.textContent = "Example heading";
   headingEl.appendChild(textEl);
 
@@ -1334,17 +1348,17 @@ function createPreviewHeadingLabel(settings: SectionMeterSettings): string {
 function createSettingsStatusBarPreview(
   settings: SectionMeterSettings
 ): { el: HTMLElement; contentEl: HTMLElement } {
-  const el = activeDocument.createElement("div");
+  const el = activeDocument.createDiv();
   el.className = "section-meter-settings-preview-example";
 
-  const labelEl = activeDocument.createElement("div");
+  const labelEl = activeDocument.createDiv();
   labelEl.className = "section-meter-settings-preview-example-label";
   labelEl.textContent = "Status bar";
   el.appendChild(labelEl);
 
-  const barEl = activeDocument.createElement("div");
+  const barEl = activeDocument.createDiv();
   barEl.className = "section-meter-settings-preview-statusbar";
-  const contentEl = activeDocument.createElement("span");
+  const contentEl = activeDocument.createSpan();
   contentEl.className = "section-meter-settings-preview-statusbar-content";
   barEl.appendChild(contentEl);
   el.appendChild(barEl);
@@ -1368,7 +1382,7 @@ function createSettingsStatusBarParts(settings: SectionMeterSettings): HTMLEleme
   }
 
   if (settings.showStatusBarSelectionStats) {
-    const selectionPart = activeDocument.createElement("span");
+    const selectionPart = activeDocument.createSpan();
     selectionPart.className = "section-meter-settings-preview-statusbar-segment";
     if (parts.length > 0) {
       selectionPart.appendChild(createStatusBarSeparatorEl());
@@ -1378,7 +1392,7 @@ function createSettingsStatusBarParts(settings: SectionMeterSettings): HTMLEleme
   }
 
   if (parts.length === 0) {
-    const emptyEl = activeDocument.createElement("span");
+    const emptyEl = activeDocument.createSpan();
     emptyEl.className = "section-meter-settings-preview-statusbar-empty";
     emptyEl.textContent = "Only active section targets appear";
     parts.push(emptyEl);
@@ -1579,6 +1593,7 @@ function normalizeSettings(settings: StoredSettings): SectionMeterSettings {
       settings.mobileStickySectionMeter,
       DEFAULT_SETTINGS.mobileStickySectionMeter
     ),
+    mobileMeterPosition: normalizeMobileMeterPosition(settings.mobileMeterPosition),
     previewSticky: normalizeBoolean(settings.previewSticky, DEFAULT_SETTINGS.previewSticky)
   };
 }
@@ -1636,9 +1651,9 @@ function createReadingTimeBadge(
   selectOnClick = false,
   scopeLabel = "Reading stats"
 ): HTMLElement {
-  const badge = activeDocument.createElement("span");
+  const badge = activeDocument.createSpan();
   badge.className = ["section-meter-badge", extraClass].filter(Boolean).join(" ");
-  const labelEl = activeDocument.createElement("span");
+  const labelEl = activeDocument.createSpan();
   labelEl.className = "section-meter-badge-label";
   labelEl.textContent = label;
   badge.appendChild(labelEl);
@@ -1673,10 +1688,10 @@ function createReadingTimeBadge(
 }
 
 function createBadgeTargetGroupEl(target: WritingTargetProgress): HTMLElement {
-  const groupEl = activeDocument.createElement("span");
+  const groupEl = activeDocument.createSpan();
   groupEl.className = "section-meter-target-group";
 
-  const captionEl = activeDocument.createElement("span");
+  const captionEl = activeDocument.createSpan();
   captionEl.className = "section-meter-target-caption";
   captionEl.textContent = "Target";
   groupEl.appendChild(captionEl);
@@ -1691,10 +1706,10 @@ function createStatusBarStatsEl(
   stats: SelectionStats,
   settings: SectionMeterSettings
 ): HTMLElement {
-  const wrapper = activeDocument.createElement("span");
+  const wrapper = activeDocument.createSpan();
   wrapper.className = "section-meter-status-bar-part";
 
-  const labelEl = activeDocument.createElement("span");
+  const labelEl = activeDocument.createSpan();
   labelEl.textContent = `${scopeLabel}: ${formatConfiguredStats(stats, settings)}`;
   wrapper.appendChild(labelEl);
 
@@ -1712,7 +1727,7 @@ function createStatusBarStatsEl(
 }
 
 function createStatusBarTargetEl(target: WritingTargetProgress): HTMLElement {
-  const wrapper = activeDocument.createElement("span");
+  const wrapper = activeDocument.createSpan();
   wrapper.className = "section-meter-status-bar-part section-meter-status-bar-target";
 
   const targetTextEl = createTargetLabelEl(target);
@@ -1725,35 +1740,35 @@ function createStatusBarTargetEl(target: WritingTargetProgress): HTMLElement {
 }
 
 function createStatusBarSeparatorEl(): HTMLElement {
-  const separator = activeDocument.createElement("span");
+  const separator = activeDocument.createSpan();
   separator.className = "section-meter-status-bar-separator";
   separator.textContent = "|";
   return separator;
 }
 
 function createTargetLabelEl(target: WritingTargetProgress): HTMLElement {
-  const labelEl = activeDocument.createElement("span");
+  const labelEl = activeDocument.createSpan();
   labelEl.className = "section-meter-target-label";
   labelEl.textContent = target.label;
   return labelEl;
 }
 
 function createInlineTargetSeparatorEl(): HTMLElement {
-  const separator = activeDocument.createElement("span");
+  const separator = activeDocument.createSpan();
   separator.className = "section-meter-target-separator";
   separator.textContent = "|";
   return separator;
 }
 
 function createTargetProgressEl(target: WritingTargetProgress): HTMLElement {
-  const progressEl = activeDocument.createElement("span");
+  const progressEl = activeDocument.createSpan();
   progressEl.className = [
     "section-meter-target-progress",
     getTargetProgressStateClass(target)
   ].join(" ");
   progressEl.setAttribute("aria-hidden", "true");
 
-  const fillEl = activeDocument.createElement("span");
+  const fillEl = activeDocument.createSpan();
   fillEl.className = "section-meter-target-progress-fill";
   fillEl.style.width = `${Math.min(100, Math.max(0, target.percent))}%`;
   progressEl.appendChild(fillEl);
@@ -1986,6 +2001,12 @@ function normalizeTargetOverageWarningPercent(value: unknown): number {
 
 function normalizeTargetProgressLabelStyle(value: unknown): SectionMeterSettings["targetProgressLabelStyle"] {
   return value === "percentage" ? "percentage" : DEFAULT_SETTINGS.targetProgressLabelStyle;
+}
+
+function normalizeMobileMeterPosition(
+  value: unknown
+): SectionMeterSettings["mobileMeterPosition"] {
+  return value === "top" ? "top" : DEFAULT_SETTINGS.mobileMeterPosition;
 }
 
 function parseNonNegativeInteger(value: unknown, fallback: number): number {

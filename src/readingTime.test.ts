@@ -7,6 +7,7 @@ import {
   formatSeconds,
   formatWritingTargetCountLabel,
   getActiveSectionTargetAtPosition,
+  getActiveWritingTargetAtPosition,
   parseHeadingSections,
   parseWritingTargetLine,
   summarizeNoteReadingTime,
@@ -35,6 +36,7 @@ const settings = {
   targetOverageWarningPercent: 125,
   targetProgressLabelStyle: "count" as const,
   mobileStickySectionMeter: false,
+  mobileMeterPosition: "bottom" as const,
   previewSticky: true
 };
 
@@ -485,6 +487,38 @@ describe("writing target progress", () => {
       summaries,
       markdown.indexOf("sibling words")
     )).toMatchObject({ targetValue: 20 });
+  });
+
+  it("keeps inherited section targets active in the mobile meter", () => {
+    const markdown = [
+      "# Parent",
+      "Target: 20 words",
+      "## Child",
+      "child words"
+    ].join("\n");
+    const summaries = summarizeSectionReadingTimes(markdown, settings);
+
+    expect(getActiveWritingTargetAtPosition(
+      summaries,
+      null,
+      markdown.indexOf("child words")
+    )).toMatchObject({ targetValue: 20 });
+  });
+
+  it("falls back to the whole-note target in the mobile meter", () => {
+    const markdown = [
+      "Target: 100 words",
+      "# Section",
+      "section words"
+    ].join("\n");
+    const summaries = summarizeSectionReadingTimes(markdown, settings);
+    const noteTarget = summarizeNoteReadingTime(markdown, settings).target;
+
+    expect(getActiveWritingTargetAtPosition(
+      summaries,
+      noteTarget,
+      markdown.indexOf("section words")
+    )).toMatchObject({ targetValue: 100 });
   });
 
   it("supports reading-time target progress", () => {

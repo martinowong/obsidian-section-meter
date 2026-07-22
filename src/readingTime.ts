@@ -30,6 +30,7 @@ export interface SectionMeterSettings {
   targetOverageWarningPercent: number;
   targetProgressLabelStyle: TargetProgressLabelStyle;
   mobileStickySectionMeter: boolean;
+  mobileMeterPosition: MobileMeterPosition;
   previewSticky: boolean;
 }
 
@@ -53,6 +54,7 @@ export interface SectionMeterSummary extends HeadingSection {
 
 export type WritingTargetMetric = "words" | "characters" | "reading-time";
 export type TargetProgressLabelStyle = "count" | "percentage";
+export type MobileMeterPosition = "top" | "bottom";
 
 export interface WritingTarget {
   metric: WritingTargetMetric;
@@ -256,6 +258,14 @@ export function getActiveSectionTargetAtPosition(
   }
 
   return null;
+}
+
+export function getActiveWritingTargetAtPosition(
+  summaries: SectionMeterSummary[],
+  noteTarget: WritingTargetProgress | null,
+  position: number
+): WritingTargetProgress | null {
+  return getActiveSectionTargetAtPosition(summaries, position) ?? noteTarget;
 }
 
 export function shouldShowSummary(

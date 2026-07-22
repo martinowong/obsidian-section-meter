@@ -5,6 +5,7 @@ import {
   createWritingTargetTextEdit,
   formatReadingTime,
   formatSeconds,
+  formatWritingTargetCountLabel,
   getActiveSectionTargetAtPosition,
   parseHeadingSections,
   parseWritingTargetLine,
@@ -532,6 +533,26 @@ describe("writing target progress", () => {
       percent: 50,
       label: "50%"
     });
+  });
+});
+
+describe("formatWritingTargetCountLabel", () => {
+  it("formats compact word, character, and reading-time target counts", () => {
+    expect(formatWritingTargetCountLabel({
+      metric: "words",
+      currentValue: 1510,
+      targetValue: 10000
+    })).toBe("1510 / 10000 w");
+    expect(formatWritingTargetCountLabel({
+      metric: "characters",
+      currentValue: 1510,
+      targetValue: 10000
+    })).toBe("1510 / 10000 c");
+    expect(formatWritingTargetCountLabel({
+      metric: "reading-time",
+      currentValue: 150,
+      targetValue: 300
+    })).toBe("2m 30s / 5m 00s");
   });
 });
 

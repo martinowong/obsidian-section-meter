@@ -308,6 +308,17 @@ export function formatWritingTargetLine(target: WritingTarget): string {
     : `Target: ${minutes}m`;
 }
 
+export function formatWritingTargetCountLabel(
+  target: Pick<WritingTargetProgress, "metric" | "currentValue" | "targetValue">
+): string {
+  if (target.metric === "reading-time") {
+    return `${formatSeconds(target.currentValue)} / ${formatSeconds(target.targetValue)}`;
+  }
+
+  const unit = target.metric === "words" ? "w" : "c";
+  return `${target.currentValue} / ${target.targetValue} ${unit}`;
+}
+
 export function createWritingTargetTextEdit(
   markdown: string,
   scope: WritingTargetScope,

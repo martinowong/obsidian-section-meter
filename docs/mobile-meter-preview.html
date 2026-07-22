@@ -127,59 +127,40 @@
       .current-section-meter {
         position: fixed;
         z-index: 2;
-        bottom: 18px;
+        bottom: 8px;
         left: 50%;
-        width: min(calc(100% - 32px), 398px);
-        display: grid;
-        grid-template-columns: minmax(80px, 0.8fr) minmax(0, 1.7fr);
-        gap: 8px;
-        align-items: center;
-        padding: 7px 9px;
-        border: 1px solid var(--line);
-        border-radius: 9px;
-        background: color-mix(in srgb, var(--canvas) 94%, transparent);
-        box-shadow: 0 4px 12px rgb(0 0 0 / 0.1);
-        backdrop-filter: blur(12px);
-        transform: translateX(-50%);
-      }
-
-      .current-section-name {
-        overflow: hidden;
-        color: var(--text);
-        font-size: 0.72rem;
-        font-weight: 600;
-        letter-spacing: -0.01em;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .current-section-details {
+        width: min(calc(100% - 24px), 406px);
+        min-height: 32px;
         display: flex;
-        gap: 7px;
+        gap: 10px;
         align-items: center;
-        min-width: 0;
-        color: var(--muted);
-        font-size: 0.7rem;
-        font-variant-numeric: tabular-nums;
-      }
-
-      .current-section-stats {
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .current-section-target {
+        padding: 6px 10px;
+        appearance: none;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--canvas) 94%, transparent);
+        box-shadow: 0 2px 8px rgb(0 0 0 / 0.1);
+        backdrop-filter: blur(12px);
         color: var(--text);
-        text-align: right;
+        font: inherit;
+        font-size: 0.72rem;
+        font-variant-numeric: tabular-nums;
+        transform: translateX(-50%);
+        touch-action: manipulation;
+      }
+
+      .current-section-label {
+        flex: 0 0 auto;
+        max-width: 48%;
+        overflow: hidden;
+        font-weight: 500;
+        text-overflow: ellipsis;
         white-space: nowrap;
       }
 
       .current-section-progress {
-        flex: 0 0 40px;
-        width: 40px;
-        height: 4px;
+        flex: 1 1 auto;
+        height: 5px;
         overflow: hidden;
         border-radius: 999px;
         background: var(--track);
@@ -187,10 +168,19 @@
 
       .current-section-progress > span {
         display: block;
-        width: 46%;
+        width: 15.1%;
         height: 100%;
         border-radius: inherit;
         background: var(--progress);
+      }
+
+      .current-section-count,
+      .current-section-meter[data-display-mode="count"] .current-section-percentage {
+        display: none;
+      }
+
+      .current-section-meter[data-display-mode="count"] .current-section-count {
+        display: inline;
       }
 
       .note-meter {
@@ -236,14 +226,31 @@
         </div>
       </div>
 
-      <aside class="current-section-meter" aria-label="Current section: Proportions. 883 characters, 0 minutes 55 seconds. Target 0 minutes 55 seconds of 2 minutes.">
-        <div class="current-section-name">Proportions</div>
-        <div class="current-section-details">
-          <span class="current-section-stats">883 characters <span class="separator">·</span> 0m 55s</span>
-          <span class="current-section-target">Target 0m 55s / 2m</span>
-          <div class="current-section-progress" aria-hidden="true"><span></span></div>
-        </div>
-      </aside>
+      <button
+        class="current-section-meter"
+        type="button"
+        data-display-mode="percentage"
+        aria-label="Writing target 15%. Tap to show current value and target."
+      >
+        <span class="current-section-progress" aria-hidden="true"><span></span></span>
+        <span class="current-section-label">
+          <span class="current-section-percentage">15%</span>
+          <span class="current-section-count">1510 / 10000 c</span>
+        </span>
+      </button>
     </main>
+    <script>
+      const currentSectionMeter = document.querySelector(".current-section-meter");
+      currentSectionMeter?.addEventListener("click", () => {
+        const showCount = currentSectionMeter.dataset.displayMode !== "count";
+        currentSectionMeter.dataset.displayMode = showCount ? "count" : "percentage";
+        currentSectionMeter.setAttribute(
+          "aria-label",
+          showCount
+            ? "Writing target 1510 of 10000 characters. Tap to show percentage."
+            : "Writing target 15%. Tap to show current value and target."
+        );
+      });
+    </script>
   </body>
 </html>

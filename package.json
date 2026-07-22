@@ -1,6 +1,6 @@
 {
   "name": "obsidian-section-writing-stats",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Show live word counts, character counts, reading time, and writing-goal progress for every section in Obsidian.",
   "main": "main.js",
   "scripts": {

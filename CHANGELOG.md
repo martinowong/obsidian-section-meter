@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- Replaced the Beta mobile section card with a compact writing-target progress strip near the keyboard. Tap it to switch between percentage and current/target values.
+
 ## 1.0.0
 
 - Renamed the plugin to Section Writing Stats, with clearer documentation and search-friendly metadata describing its word counts, character counts, reading time, section statistics, and writing targets.

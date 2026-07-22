@@ -29,6 +29,7 @@ import {
   WritingTargetScope,
   createWritingTargetTextEdit,
   formatReadingTime,
+  formatWritingTargetCountLabel,
   getActiveSectionTargetAtPosition,
   estimateSeconds,
   parseWritingTargetLine,
@@ -662,18 +663,17 @@ function createSectionMeterExtension(
         return;
       }
 
-      const settings = getSettings();
       const summary = getSummaryAtViewportStart(
         this.summaries,
         getPositionAtVisibleViewportTop(view)
       );
-      if (!summary || (!summary.target && !shouldShowSummary(summary, settings))) {
+      if (!summary?.target) {
         this.mobileMeterEl.classList.add("section-meter-mobile-current-section-hidden");
         return;
       }
 
       this.mobileMeterEl.classList.remove("section-meter-mobile-current-section-hidden");
-      renderMobileSectionMeter(this.mobileMeterEl, summary);
+      renderMobileSectionMeter(this.mobileMeterEl, summary.target);
     }
   }
 
@@ -702,46 +702,57 @@ function getSummaryAtViewportStart(
 }
 
 function createMobileSectionMeterEl(): HTMLElement {
-  const meterEl = activeDocument.createElement("aside");
+  const meterEl = activeDocument.createElement("button");
   meterEl.className = "section-meter-mobile-current-section";
+  meterEl.type = "button";
+  meterEl.dataset.displayMode = "percentage";
   meterEl.setAttribute("aria-live", "off");
+  meterEl.addEventListener("pointerdown", (event) => event.preventDefault());
+  meterEl.addEventListener("click", () => {
+    meterEl.dataset.displayMode = meterEl.dataset.displayMode === "count"
+      ? "percentage"
+      : "count";
+    updateMobileMeterAccessibilityLabel(meterEl);
+  });
   return meterEl;
 }
 
 function renderMobileSectionMeter(
   meterEl: HTMLElement,
-  summary: SectionMeterSummary
+  target: WritingTargetProgress
 ): void {
-  const headingEl = activeDocument.createElement("div");
-  headingEl.className = "section-meter-mobile-current-section-heading";
-  headingEl.textContent = summary.title || "Current section";
+  const progressEl = createTargetProgressEl(target);
+  progressEl.classList.add("section-meter-mobile-current-section-progress");
 
-  const detailsEl = activeDocument.createElement("div");
-  detailsEl.className = "section-meter-mobile-current-section-details";
+  const labelEl = activeDocument.createElement("span");
+  labelEl.className = "section-meter-mobile-current-section-label";
 
-  const statsEl = activeDocument.createElement("span");
-  statsEl.className = "section-meter-mobile-current-section-stats";
-  statsEl.textContent = summary.label;
-  detailsEl.appendChild(statsEl);
+  const percentageEl = activeDocument.createElement("span");
+  percentageEl.className = "section-meter-mobile-current-section-percentage";
+  percentageEl.textContent = `${Math.round(target.percent)}%`;
 
-  if (summary.target) {
-    const targetEl = activeDocument.createElement("span");
-    targetEl.className = "section-meter-mobile-current-section-target";
-    targetEl.textContent = `Target ${summary.target.label}`;
-    detailsEl.appendChild(targetEl);
+  const countEl = activeDocument.createElement("span");
+  countEl.className = "section-meter-mobile-current-section-count";
+  countEl.textContent = formatWritingTargetCountLabel(target);
 
-    const progressEl = createTargetProgressEl(summary.target);
-    progressEl.classList.add("section-meter-mobile-current-section-progress");
-    detailsEl.appendChild(progressEl);
-  }
+  labelEl.append(percentageEl, countEl);
+  meterEl.replaceChildren(progressEl, labelEl);
+  meterEl.dataset.percentageLabel = percentageEl.textContent;
+  meterEl.dataset.countLabel = countEl.textContent;
+  updateMobileMeterAccessibilityLabel(meterEl);
+}
 
-  meterEl.replaceChildren(headingEl, detailsEl);
+function updateMobileMeterAccessibilityLabel(meterEl: HTMLElement): void {
+  const showCount = meterEl.dataset.displayMode === "count";
+  const visibleLabel = showCount
+    ? meterEl.dataset.countLabel
+    : meterEl.dataset.percentageLabel;
+  const nextLabel = showCount ? "percentage" : "current value and target";
   meterEl.setAttribute(
     "aria-label",
-    summary.target
-      ? `${summary.title || "Current section"}: ${summary.label}, target ${summary.target.label}`
-      : `${summary.title || "Current section"}: ${summary.label}`
+    `Writing target ${visibleLabel ?? ""}. Tap to show ${nextLabel}.`
   );
+  meterEl.setAttribute("aria-pressed", String(showCount));
 }
 
 class ReadingTimeWidget extends WidgetType {
@@ -966,7 +977,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
     this.addHeading("Mobile");
     this.addToggleSetting(
       "Sticky current-section meter (Beta)",
-      "Beta: show the heading currently in view and its stats while scrolling in the mobile editor.",
+      "Beta: show writing-target progress near the keyboard while scrolling in the mobile editor. Tap the meter to switch between percentage and count.",
       () => this.plugin.settings.mobileStickySectionMeter,
       async (value) => {
         this.plugin.settings.mobileStickySectionMeter = value;

@@ -402,59 +402,55 @@ body.is-mobile .section-meter-mobile-current-section,
 .is-mobile .section-meter-mobile-current-section {
   position: fixed;
   z-index: 30;
-  inset-inline: 1rem;
-  inset-block-end: max(0.65rem, env(safe-area-inset-bottom));
-  display: grid;
-  grid-template-columns: minmax(4rem, 0.8fr) minmax(0, 1.7fr);
-  gap: 0.5rem;
-  align-items: center;
-  max-inline-size: 30rem;
-  margin-inline: auto;
-  padding: 0.36rem 0.5rem;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  color: var(--text-muted);
-  background: var(--background-primary);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
-  font-size: var(--font-ui-smallest);
-  line-height: 1.15;
-  pointer-events: none;
-}
-
-.section-meter-mobile-current-section-heading {
-  overflow: hidden;
-  color: var(--text-normal);
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.section-meter-mobile-current-section-details {
+  inset-inline: 0.75rem;
+  inset-block-end: max(0.25rem, env(safe-area-inset-bottom));
   display: flex;
-  gap: 0.45rem;
+  gap: 0.55rem;
   align-items: center;
-  min-inline-size: 0;
-}
-
-.section-meter-mobile-current-section-stats {
-  flex: 1 1 auto;
-  min-inline-size: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.section-meter-mobile-current-section-target {
-  flex: 0 0 auto;
+  max-inline-size: 26rem;
+  min-block-size: 2rem;
+  margin-inline: auto;
+  padding: 0.3rem 0.55rem;
+  appearance: none;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
   color: var(--text-normal);
+  background: var(--background-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-smallest);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.section-meter-mobile-current-section-label {
+  flex: 0 0 auto;
+  max-inline-size: 48%;
+  overflow: hidden;
+  font-weight: 500;
   text-align: end;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .section-meter-mobile-current-section-progress {
-  flex: 0 0 2.5rem;
-  inline-size: 2.5rem;
-  block-size: 0.22rem;
+  flex: 1 1 auto;
+  inline-size: auto;
+  block-size: 0.3rem;
+}
+
+.section-meter-mobile-current-section-count,
+.section-meter-mobile-current-section[data-display-mode="count"]
+  .section-meter-mobile-current-section-percentage {
+  display: none;
+}
+
+.section-meter-mobile-current-section[data-display-mode="count"]
+  .section-meter-mobile-current-section-count {
+  display: inline;
 }
 
 body.is-mobile

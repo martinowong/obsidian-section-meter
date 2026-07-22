@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.2
 
 - Made the Beta mobile target meter smaller and added a top or bottom position setting. The bottom position now stays above Obsidian's mobile command toolbar.
 - Fixed the mobile meter disappearing inside untargeted child headings or when a whole-note target was active.

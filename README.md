@@ -122,6 +122,8 @@ You can configure:
 
 ## Installation
 
+Section Writing Stats 1.1.0 and newer requires Obsidian 1.13 or newer.
+
 Install **Section Writing Stats** from **Settings → Community plugins → Browse** in Obsidian, or open its [Community Plugins page](https://community.obsidian.md/plugins/section-meter).
 
 ### Manual installation

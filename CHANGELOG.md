@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0
+
+- Added native Obsidian 1.13 settings search, making every Section Writing Stats option easier to find from Obsidian's settings.
+- Preserved the live preview and responsive conditional options while moving the settings screen to Obsidian's current settings API.
+- Updated the minimum supported Obsidian version to 1.13.
+
 ## 1.0.2
 
 - Made the Beta mobile target meter smaller and added a top or bottom position setting. The bottom position now stays above Obsidian's mobile command toolbar.

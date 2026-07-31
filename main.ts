@@ -19,6 +19,11 @@ import {
   Setting,
   TextComponent
 } from "obsidian";
+import type {
+  SettingDefinition,
+  SettingDefinitionGroup,
+  SettingDefinitionItem
+} from "obsidian";
 import {
   SectionMeterSettings,
   SectionMeterSummary,
@@ -805,345 +810,396 @@ class SectionMeterSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
-  display(): void {
-    this.renderSettings();
-  }
-
-  private renderSettings(): void {
-    this.containerEl.empty();
-    this.previewEl = null;
-    this.badgePreviewValueEl = null;
-    this.statusBarPreviewContentEl = null;
-    this.addDisplayPreview();
-
-    this.addHeading("Badge display");
-    this.addToggleSetting(
-      "Word count",
-      "Show readable word counts in heading and title badges.",
-      () => this.plugin.settings.showWords,
-      async (value) => {
-        this.plugin.settings.showWords = value;
-        await this.plugin.saveSettings();
-      },
-      { updatePreviewAfterChange: true }
-    );
-    this.addToggleSetting(
-      "Reading time",
-      "Show estimated reading time in heading and title badges.",
-      () => this.plugin.settings.showTiming,
-      async (value) => {
-        this.plugin.settings.showTiming = value;
-        await this.plugin.saveSettings();
-      },
-      { updatePreviewAfterChange: true }
-    );
-    this.addToggleSetting(
-      "Character count",
-      "Show readable character counts in heading and title badges.",
-      () => this.plugin.settings.showCharacters,
-      async (value) => {
-        this.plugin.settings.showCharacters = value;
-        await this.plugin.saveSettings();
-      },
-      { updatePreviewAfterChange: true }
-    );
-    this.addToggleSetting(
-      "Compact mode",
-      "Use shorter labels like 640w, 3200 chars, and 3m/49s in heading badges, title badges, and the status bar.",
-      () => this.plugin.settings.compactMode,
-      async (value) => {
-        this.plugin.settings.compactMode = value;
-        await this.plugin.saveSettings();
-      },
-      { updateAfterChange: true, updatePreviewAfterChange: true }
-    );
-    if (this.plugin.settings.compactMode) {
-      this.addCompactLabelSettings();
-    }
-    this.addToggleSetting(
-      "Minutes only",
-      "Hide seconds in reading-time labels once they reach a minute. Times below one minute still show seconds.",
-      () => this.plugin.settings.showTimeAsMinutesOnly,
-      async (value) => {
-        this.plugin.settings.showTimeAsMinutesOnly = value;
-        await this.plugin.saveSettings();
-      },
-      { updatePreviewAfterChange: true }
-    );
-    this.addTextSetting(
-      "Separator",
-      "Single character used between enabled badge label parts.",
-      DEFAULT_SETTINGS.labelSeparator,
-      () => this.plugin.settings.labelSeparator,
-      async (value) => {
-        this.plugin.settings.labelSeparator = normalizeSeparator(value);
-        await this.plugin.saveSettings();
-      },
-      { updatePreviewAfterChange: true }
-    );
-    this.addTextSetting(
-      "Minimum word count",
-      "Hide badges for sections below this word count. Use 0 to show all headings.",
-      String(DEFAULT_SETTINGS.minimumWordCount),
-      () => String(this.plugin.settings.minimumWordCount),
-      async (value) => {
-        this.plugin.settings.minimumWordCount = parseNonNegativeInteger(
-          value,
-          DEFAULT_SETTINGS.minimumWordCount
-        );
-        await this.plugin.saveSettings();
-      }
-    );
-    this.addToggleSetting(
-      "Hide empty sections",
-      "Hide badges for headings with no readable words below them.",
-      () => this.plugin.settings.hideEmptySections,
-      async (value) => {
-        this.plugin.settings.hideEmptySections = value;
-        await this.plugin.saveSettings();
-      }
-    );
-
-    this.addHeading("Counting rules");
-    this.addReadingSpeedSetting();
-    this.addToggleSetting(
-      "Count spaces",
-      "Count normalized spaces between words in character counts.",
-      () => this.plugin.settings.countCharactersWithSpaces,
-      async (value) => {
-        this.plugin.settings.countCharactersWithSpaces = value;
-        await this.plugin.saveSettings();
-      },
-      {
-        disabled: () => !this.plugin.settings.showCharacters
-          && !this.plugin.settings.showStatusBarCharacters
-      }
-    );
-
-    this.addHeading("Status bar");
-    this.addToggleSetting(
-      "Whole note",
-      "Show whole-note stats in Obsidian's bottom status bar.",
-      () => this.plugin.settings.showStatusBarNoteStats,
-      async (value) => {
-        this.plugin.settings.showStatusBarNoteStats = value;
-        await this.plugin.saveSettings();
-      },
-      { updatePreviewAfterChange: true }
-    );
-    this.addToggleSetting(
-      "Selection",
-      "Show selected-text stats in Obsidian's bottom status bar.",
-      () => this.plugin.settings.showStatusBarSelectionStats,
-      async (value) => {
-        this.plugin.settings.showStatusBarSelectionStats = value;
-        await this.plugin.saveSettings();
-      },
-      { updatePreviewAfterChange: true }
-    );
-    this.addToggleSetting(
-      "Word count",
-      "Show word counts in the status bar.",
-      () => this.plugin.settings.showStatusBarWords,
-      async (value) => {
-        this.plugin.settings.showStatusBarWords = value;
-        await this.plugin.saveSettings();
-      },
-      { updatePreviewAfterChange: true }
-    );
-    this.addToggleSetting(
-      "Reading time",
-      "Show estimated reading time in the status bar.",
-      () => this.plugin.settings.showStatusBarTiming,
-      async (value) => {
-        this.plugin.settings.showStatusBarTiming = value;
-        await this.plugin.saveSettings();
-      },
-      { updatePreviewAfterChange: true }
-    );
-    this.addToggleSetting(
-      "Character count",
-      "Show readable character counts in the status bar.",
-      () => this.plugin.settings.showStatusBarCharacters,
-      async (value) => {
-        this.plugin.settings.showStatusBarCharacters = value;
-        await this.plugin.saveSettings();
-      },
-      { updatePreviewAfterChange: true }
-    );
-
-    this.addHeading("Mobile");
-    this.addToggleSetting(
-      "Sticky current-section meter (Beta)",
-      "Beta: show writing-target progress while scrolling in the mobile editor. Tap the meter to switch between percentage and count.",
-      () => this.plugin.settings.mobileStickySectionMeter,
-      async (value) => {
-        this.plugin.settings.mobileStickySectionMeter = value;
-        await this.plugin.saveSettings();
-      },
-      { updateAfterChange: true }
-    );
-    if (this.plugin.settings.mobileStickySectionMeter) {
-      this.addDropdownSetting(
-        "Meter position",
-        "Place the meter above the mobile command toolbar or at the top of the editor.",
-        () => this.plugin.settings.mobileMeterPosition,
-        {
-          bottom: "Bottom (above toolbar)",
-          top: "Top of editor"
-        },
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [
+      this.createDisplayPreviewSetting(),
+      this.createToggleSetting(
+        "Keep live preview visible",
+        "Keep the preview pinned while you scroll through the settings.",
+        () => this.plugin.settings.previewSticky,
         async (value) => {
-          this.plugin.settings.mobileMeterPosition = normalizeMobileMeterPosition(value);
+          this.plugin.settings.previewSticky = value;
           await this.plugin.saveSettings();
+          this.updatePreviewSticky();
         }
-      );
-    }
+      ),
+      this.createBuildInfoSetting(),
+      this.getBadgeDisplaySettings(),
+      this.getCountingRuleSettings(),
+      this.getStatusBarSettings(),
+      this.getMobileSettings(),
+      this.getWritingTargetSettings()
+    ];
+  }
 
-    this.addHeading("Writing targets");
-    this.addGuidanceSetting(
-      "Supported target formats",
-      "Examples: Target: 250 words, Target: 1800 characters, Target: 3m, Target: 2m 30s."
-    );
-    this.addDropdownSetting(
-      "Progress label",
-      "Show target progress as a count or as a percentage.",
-      () => this.plugin.settings.targetProgressLabelStyle,
-      {
-        count: "Count (n/N)",
-        percentage: "Percentage"
-      },
-      async (value) => {
-        this.plugin.settings.targetProgressLabelStyle =
-          normalizeTargetProgressLabelStyle(value);
-        await this.plugin.saveSettings();
+  private getBadgeDisplaySettings(): SettingDefinitionGroup {
+    return {
+      type: "group",
+      heading: "Badge display",
+      items: [
+        this.createToggleSetting(
+          "Word count",
+          "Show readable word counts in heading and title badges.",
+          () => this.plugin.settings.showWords,
+          async (value) => {
+            this.plugin.settings.showWords = value;
+            await this.plugin.saveSettings();
+          },
+          { updatePreviewAfterChange: true }
+        ),
+        this.createToggleSetting(
+          "Reading time",
+          "Show estimated reading time in heading and title badges.",
+          () => this.plugin.settings.showTiming,
+          async (value) => {
+            this.plugin.settings.showTiming = value;
+            await this.plugin.saveSettings();
+          },
+          { updatePreviewAfterChange: true }
+        ),
+        this.createToggleSetting(
+          "Character count",
+          "Show readable character counts in heading and title badges.",
+          () => this.plugin.settings.showCharacters,
+          async (value) => {
+            this.plugin.settings.showCharacters = value;
+            await this.plugin.saveSettings();
+          },
+          { updateAfterChange: true }
+        ),
+        this.createToggleSetting(
+          "Compact mode",
+          "Use shorter labels like 640w, 3200 chars, and 3m/49s in heading badges, title badges, and the status bar.",
+          () => this.plugin.settings.compactMode,
+          async (value) => {
+            this.plugin.settings.compactMode = value;
+            await this.plugin.saveSettings();
+          },
+          { updateAfterChange: true }
+        ),
+        this.createTextSetting(
+          "Compact words label",
+          "Suffix used for word counts in compact mode. Defaults to w.",
+          DEFAULT_SETTINGS.compactWordsLabel,
+          () => this.plugin.settings.compactWordsLabel,
+          async (value) => {
+            this.plugin.settings.compactWordsLabel =
+              value.trim() || DEFAULT_SETTINGS.compactWordsLabel;
+            await this.plugin.saveSettings();
+          },
+          {
+            visible: () => this.plugin.settings.compactMode,
+            updatePreviewAfterChange: true
+          }
+        ),
+        this.createTextSetting(
+          "Compact characters label",
+          "Label used for character counts in compact mode. Defaults to char.",
+          DEFAULT_SETTINGS.compactCharactersLabel,
+          () => this.plugin.settings.compactCharactersLabel,
+          async (value) => {
+            this.plugin.settings.compactCharactersLabel =
+              value.trim() || DEFAULT_SETTINGS.compactCharactersLabel;
+            await this.plugin.saveSettings();
+          },
+          {
+            visible: () => this.plugin.settings.compactMode,
+            updatePreviewAfterChange: true
+          }
+        ),
+        this.createTextSetting(
+          "Compact minutes label",
+          "Suffix used for minute estimates in compact mode. Defaults to m.",
+          DEFAULT_SETTINGS.compactMinutesLabel,
+          () => this.plugin.settings.compactMinutesLabel,
+          async (value) => {
+            this.plugin.settings.compactMinutesLabel =
+              value.trim() || DEFAULT_SETTINGS.compactMinutesLabel;
+            await this.plugin.saveSettings();
+          },
+          {
+            visible: () => this.plugin.settings.compactMode,
+            updatePreviewAfterChange: true
+          }
+        ),
+        this.createToggleSetting(
+          "Minutes only",
+          "Hide seconds in reading-time labels once they reach a minute. Times below one minute still show seconds.",
+          () => this.plugin.settings.showTimeAsMinutesOnly,
+          async (value) => {
+            this.plugin.settings.showTimeAsMinutesOnly = value;
+            await this.plugin.saveSettings();
+          },
+          { updatePreviewAfterChange: true }
+        ),
+        this.createTextSetting(
+          "Separator",
+          "Single character used between enabled badge label parts.",
+          DEFAULT_SETTINGS.labelSeparator,
+          () => this.plugin.settings.labelSeparator,
+          async (value) => {
+            this.plugin.settings.labelSeparator = normalizeSeparator(value);
+            await this.plugin.saveSettings();
+          },
+          { updatePreviewAfterChange: true }
+        ),
+        this.createTextSetting(
+          "Minimum word count",
+          "Hide badges for sections below this word count. Use 0 to show all headings.",
+          String(DEFAULT_SETTINGS.minimumWordCount),
+          () => String(this.plugin.settings.minimumWordCount),
+          async (value) => {
+            this.plugin.settings.minimumWordCount = parseNonNegativeInteger(
+              value,
+              DEFAULT_SETTINGS.minimumWordCount
+            );
+            await this.plugin.saveSettings();
+          }
+        ),
+        this.createToggleSetting(
+          "Hide empty sections",
+          "Hide badges for headings with no readable words below them.",
+          () => this.plugin.settings.hideEmptySections,
+          async (value) => {
+            this.plugin.settings.hideEmptySections = value;
+            await this.plugin.saveSettings();
+          }
+        )
+      ]
+    };
+  }
+
+  private getCountingRuleSettings(): SettingDefinitionGroup {
+    return {
+      type: "group",
+      heading: "Counting rules",
+      items: [
+        this.createReadingSpeedSetting(),
+        this.createToggleSetting(
+          "Count spaces",
+          "Count normalized spaces between words in character counts.",
+          () => this.plugin.settings.countCharactersWithSpaces,
+          async (value) => {
+            this.plugin.settings.countCharactersWithSpaces = value;
+            await this.plugin.saveSettings();
+          },
+          {
+            disabled: () => !this.plugin.settings.showCharacters
+              && !this.plugin.settings.showStatusBarCharacters
+          }
+        )
+      ]
+    };
+  }
+
+  private getStatusBarSettings(): SettingDefinitionGroup {
+    return {
+      type: "group",
+      heading: "Status bar",
+      items: [
+        this.createToggleSetting(
+          "Whole note",
+          "Show whole-note stats in Obsidian's bottom status bar.",
+          () => this.plugin.settings.showStatusBarNoteStats,
+          async (value) => {
+            this.plugin.settings.showStatusBarNoteStats = value;
+            await this.plugin.saveSettings();
+          },
+          { updatePreviewAfterChange: true }
+        ),
+        this.createToggleSetting(
+          "Selection",
+          "Show selected-text stats in Obsidian's bottom status bar.",
+          () => this.plugin.settings.showStatusBarSelectionStats,
+          async (value) => {
+            this.plugin.settings.showStatusBarSelectionStats = value;
+            await this.plugin.saveSettings();
+          },
+          { updatePreviewAfterChange: true }
+        ),
+        this.createToggleSetting(
+          "Word count",
+          "Show word counts in the status bar.",
+          () => this.plugin.settings.showStatusBarWords,
+          async (value) => {
+            this.plugin.settings.showStatusBarWords = value;
+            await this.plugin.saveSettings();
+          },
+          { updatePreviewAfterChange: true }
+        ),
+        this.createToggleSetting(
+          "Reading time",
+          "Show estimated reading time in the status bar.",
+          () => this.plugin.settings.showStatusBarTiming,
+          async (value) => {
+            this.plugin.settings.showStatusBarTiming = value;
+            await this.plugin.saveSettings();
+          },
+          { updatePreviewAfterChange: true }
+        ),
+        this.createToggleSetting(
+          "Character count",
+          "Show readable character counts in the status bar.",
+          () => this.plugin.settings.showStatusBarCharacters,
+          async (value) => {
+            this.plugin.settings.showStatusBarCharacters = value;
+            await this.plugin.saveSettings();
+          },
+          { updateAfterChange: true }
+        )
+      ]
+    };
+  }
+
+  private getMobileSettings(): SettingDefinitionGroup {
+    return {
+      type: "group",
+      heading: "Mobile",
+      items: [
+        this.createToggleSetting(
+          "Sticky current-section meter (Beta)",
+          "Beta: show writing-target progress while scrolling in the mobile editor. Tap the meter to switch between percentage and count.",
+          () => this.plugin.settings.mobileStickySectionMeter,
+          async (value) => {
+            this.plugin.settings.mobileStickySectionMeter = value;
+            await this.plugin.saveSettings();
+          },
+          { updateAfterChange: true }
+        ),
+        this.createDropdownSetting(
+          "Meter position",
+          "Place the meter above the mobile command toolbar or at the top of the editor.",
+          () => this.plugin.settings.mobileMeterPosition,
+          {
+            bottom: "Bottom (above toolbar)",
+            top: "Top of editor"
+          },
+          async (value) => {
+            this.plugin.settings.mobileMeterPosition =
+              normalizeMobileMeterPosition(value);
+            await this.plugin.saveSettings();
+          },
+          { visible: () => this.plugin.settings.mobileStickySectionMeter }
+        )
+      ]
+    };
+  }
+
+  private getWritingTargetSettings(): SettingDefinitionGroup {
+    return {
+      type: "group",
+      heading: "Writing targets",
+      items: [
+        this.createGuidanceSetting(
+          "Supported target formats",
+          "Examples: Target: 250 words, Target: 1800 characters, Target: 3m, Target: 2m 30s."
+        ),
+        this.createDropdownSetting(
+          "Progress label",
+          "Show target progress as a count or as a percentage.",
+          () => this.plugin.settings.targetProgressLabelStyle,
+          {
+            count: "Count (n/N)",
+            percentage: "Percentage"
+          },
+          async (value) => {
+            this.plugin.settings.targetProgressLabelStyle =
+              normalizeTargetProgressLabelStyle(value);
+            await this.plugin.saveSettings();
+          }
+        ),
+        this.createSliderSetting(
+          "Overage warning threshold",
+          "Turn target progress red when it reaches this percentage of the target.",
+          MIN_TARGET_OVERAGE_WARNING_PERCENT,
+          MAX_TARGET_OVERAGE_WARNING_PERCENT,
+          TARGET_OVERAGE_WARNING_PERCENT_STEP,
+          () => this.plugin.settings.targetOverageWarningPercent,
+          async (value) => {
+            this.plugin.settings.targetOverageWarningPercent = value;
+            await this.plugin.saveSettings();
+          }
+        )
+      ]
+    };
+  }
+
+  private createReadingSpeedSetting(): SettingDefinition {
+    return {
+      name: "Reading speed",
+      desc: "Words per minute used to estimate reading time.",
+      aliases: ["Words per minute", "WPM"],
+      render: (setting) => {
+        setting.setName("Reading speed")
+          .setDesc("Words per minute used to estimate reading time.");
+        const guidanceEl = setting.descEl.createDiv({
+          cls: "section-meter-setting-guidance",
+          text: getReadingSpeedGuidance(this.plugin.settings.wordsPerMinute)
+        });
+
+        setting.addSlider((slider) => slider
+          .setLimits(MIN_WORDS_PER_MINUTE, MAX_WORDS_PER_MINUTE, WORDS_PER_MINUTE_STEP)
+          .setValue(this.plugin.settings.wordsPerMinute)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            this.plugin.settings.wordsPerMinute = value;
+            guidanceEl.textContent = getReadingSpeedGuidance(value);
+            await this.plugin.saveSettings();
+            this.updateDisplayPreview();
+          }));
       }
-    );
-    this.addSliderSetting(
-      "Overage warning threshold",
-      "Turn target progress red when it reaches this percentage of the target.",
-      MIN_TARGET_OVERAGE_WARNING_PERCENT,
-      MAX_TARGET_OVERAGE_WARNING_PERCENT,
-      TARGET_OVERAGE_WARNING_PERCENT_STEP,
-      () => this.plugin.settings.targetOverageWarningPercent,
-      async (value) => {
-        this.plugin.settings.targetOverageWarningPercent = value;
-        await this.plugin.saveSettings();
+    };
+  }
+
+  private createDisplayPreviewSetting(): SettingDefinition {
+    return {
+      name: "Live preview",
+      desc: "Preview heading badges and status-bar statistics while changing settings.",
+      render: (setting) => {
+        setting.settingEl.empty();
+        setting.settingEl.classList.add("section-meter-settings-preview-row");
+        setting.settingEl.classList.toggle(
+          "section-meter-settings-preview-static",
+          !this.plugin.settings.previewSticky
+        );
+        const settings = this.plugin.settings;
+        const previewEl = setting.settingEl.createDiv({
+          cls: "section-meter-settings-preview"
+        });
+        this.previewEl = setting.settingEl;
+
+        previewEl.createDiv({
+          cls: "section-meter-settings-preview-heading",
+          text: "Live preview"
+        });
+        const examplesEl = previewEl.createDiv({
+          cls: "section-meter-settings-preview-examples"
+        });
+
+        const badgePreview = createSettingsHeadingPreview(settings);
+        this.badgePreviewValueEl = badgePreview.valueEl;
+        examplesEl.appendChild(badgePreview.el);
+
+        const statusBarPreview = createSettingsStatusBarPreview(settings);
+        this.statusBarPreviewContentEl = statusBarPreview.contentEl;
+        examplesEl.appendChild(statusBarPreview.el);
       }
-    );
+    };
   }
 
-  private addHeading(name: string): void {
-    new Setting(this.containerEl)
-      .setName(name)
-      .setHeading();
-  }
-
-  private addReadingSpeedSetting(): void {
-    const readingSpeedGuidanceEl = activeDocument.createDiv();
-    readingSpeedGuidanceEl.className = "section-meter-setting-guidance";
-    readingSpeedGuidanceEl.textContent = getReadingSpeedGuidance(
-      this.plugin.settings.wordsPerMinute
-    );
-
-    new Setting(this.containerEl)
-      .setName("Reading speed")
-      .setDesc("Words per minute used to estimate reading time.")
-      .then((setting) => {
-        setting.descEl.appendChild(readingSpeedGuidanceEl);
-      })
-      .addSlider((slider) => slider
-        .setLimits(MIN_WORDS_PER_MINUTE, MAX_WORDS_PER_MINUTE, WORDS_PER_MINUTE_STEP)
-        .setValue(this.plugin.settings.wordsPerMinute)
-        .setDynamicTooltip()
-        .onChange(async (value) => {
-          this.plugin.settings.wordsPerMinute = value;
-          readingSpeedGuidanceEl.textContent = getReadingSpeedGuidance(value);
-          await this.plugin.saveSettings();
-          this.updateDisplayPreview();
-        }));
-  }
-
-  private addDisplayPreview(): void {
-    const settings = this.plugin.settings;
-    const previewEl = activeDocument.createDiv();
-    previewEl.className = [
-      "section-meter-settings-preview",
-      settings.previewSticky ? "" : "section-meter-settings-preview-static"
-    ].filter(Boolean).join(" ");
-    this.previewEl = previewEl;
-
-    const headerEl = activeDocument.createDiv();
-    headerEl.className = "section-meter-settings-preview-heading";
-
-    headerEl.textContent = "Live preview";
-    previewEl.appendChild(headerEl);
-
-    const examplesEl = activeDocument.createDiv();
-    examplesEl.className = "section-meter-settings-preview-examples";
-
-    const badgePreview = createSettingsHeadingPreview(settings);
-    this.badgePreviewValueEl = badgePreview.valueEl;
-    examplesEl.appendChild(badgePreview.el);
-
-    const statusBarPreview = createSettingsStatusBarPreview(settings);
-    this.statusBarPreviewContentEl = statusBarPreview.contentEl;
-    examplesEl.appendChild(statusBarPreview.el);
-    previewEl.appendChild(examplesEl);
-
-    this.containerEl.appendChild(previewEl);
-
-    this.addToggleSetting(
-      "Keep live preview visible",
-      "Keep the preview pinned while you scroll through the settings.",
-      () => this.plugin.settings.previewSticky,
-      async (value) => {
-        this.plugin.settings.previewSticky = value;
-        await this.plugin.saveSettings();
-        this.updatePreviewSticky();
+  private createBuildInfoSetting(): SettingDefinition {
+    return {
+      name: "Build information",
+      searchable: false,
+      render: (setting) => {
+        setting.settingEl.empty();
+        setting.settingEl.classList.add("section-meter-settings-preview-build-row");
+        setting.settingEl.createDiv({
+          cls: "section-meter-settings-preview-build",
+          text: createBuildInfoLabel(this.plugin.manifest.version)
+        });
       }
-    );
-
-    const buildInfoEl = activeDocument.createDiv();
-    buildInfoEl.className = "section-meter-settings-preview-build";
-    buildInfoEl.textContent = createBuildInfoLabel(this.plugin.manifest.version);
-    this.containerEl.appendChild(buildInfoEl);
-  }
-
-  private addCompactLabelSettings(): void {
-    this.addTextSetting(
-      "Compact words label",
-      "Suffix used for word counts in compact mode. Defaults to w.",
-      DEFAULT_SETTINGS.compactWordsLabel,
-      () => this.plugin.settings.compactWordsLabel,
-      async (value) => {
-        this.plugin.settings.compactWordsLabel = value.trim() || DEFAULT_SETTINGS.compactWordsLabel;
-        await this.plugin.saveSettings();
-      },
-      { updatePreviewAfterChange: true }
-    );
-    this.addTextSetting(
-      "Compact characters label",
-      "Label used for character counts in compact mode. Defaults to char.",
-      DEFAULT_SETTINGS.compactCharactersLabel,
-      () => this.plugin.settings.compactCharactersLabel,
-      async (value) => {
-        this.plugin.settings.compactCharactersLabel = value.trim()
-          || DEFAULT_SETTINGS.compactCharactersLabel;
-        await this.plugin.saveSettings();
-      },
-      { updatePreviewAfterChange: true }
-    );
-    this.addTextSetting(
-      "Compact minutes label",
-      "Suffix used for minute estimates in compact mode. Defaults to m.",
-      DEFAULT_SETTINGS.compactMinutesLabel,
-      () => this.plugin.settings.compactMinutesLabel,
-      async (value) => {
-        this.plugin.settings.compactMinutesLabel = value.trim() || DEFAULT_SETTINGS.compactMinutesLabel;
-        await this.plugin.saveSettings();
-      },
-      { updatePreviewAfterChange: true }
-    );
+    };
   }
 
   private updatePreviewSticky(): void {
@@ -1181,99 +1237,130 @@ class SectionMeterSettingTab extends PluginSettingTab {
     }
   }
 
-  private addToggleSetting(
+  private createToggleSetting(
     name: string,
     desc: string,
     getValue: () => boolean,
     onChange: (value: boolean) => void | Promise<void>,
     options: SettingRowOptions = {}
-  ): void {
-    new Setting(this.containerEl)
-      .setName(name)
-      .setDesc(desc)
-      .addToggle((toggle) => toggle
-        .setValue(getValue())
-        .setDisabled(options.disabled?.() ?? false)
-        .onChange(async (value) => {
-          await onChange(value);
-          if (options.updateAfterChange) {
-            this.renderSettings();
-          }
-          if (options.updatePreviewAfterChange) {
-            this.updateDisplayPreview();
-          }
-        }));
+  ): SettingDefinition {
+    return {
+      name,
+      desc,
+      visible: options.visible,
+      render: (setting) => {
+        setting.setName(name)
+          .setDesc(desc)
+          .addToggle((toggle) => toggle
+            .setValue(getValue())
+            .setDisabled(options.disabled?.() ?? false)
+            .onChange(async (value) => {
+              await onChange(value);
+              this.refreshAfterSettingChange(options);
+            }));
+      }
+    };
   }
 
-  private addTextSetting(
+  private createTextSetting(
     name: string,
     desc: string,
     placeholder: string,
     getValue: () => string,
     onChange: (value: string) => void | Promise<void>,
     options: SettingRowOptions = {}
-  ): void {
-    new Setting(this.containerEl)
-      .setName(name)
-      .setDesc(desc)
-      .addText((text) => text
-        .setPlaceholder(placeholder)
-        .setValue(getValue())
-        .onChange(async (value) => {
-          await onChange(value);
-          if (options.updateAfterChange) {
-            this.renderSettings();
-          }
-          if (options.updatePreviewAfterChange) {
-            this.updateDisplayPreview();
-          }
-        }));
+  ): SettingDefinition {
+    return {
+      name,
+      desc,
+      visible: options.visible,
+      render: (setting) => {
+        setting.setName(name)
+          .setDesc(desc)
+          .addText((text) => text
+            .setPlaceholder(placeholder)
+            .setValue(getValue())
+            .onChange(async (value) => {
+              await onChange(value);
+              this.refreshAfterSettingChange(options);
+            }));
+      }
+    };
   }
 
-  private addSliderSetting(
+  private createSliderSetting(
     name: string,
     desc: string,
     min: number,
     max: number,
     step: number,
     getValue: () => number,
-    onChange: (value: number) => void | Promise<void>
-  ): void {
-    new Setting(this.containerEl)
-      .setName(name)
-      .setDesc(desc)
-      .addSlider((slider) => slider
-        .setLimits(min, max, step)
-        .setValue(getValue())
-        .setDynamicTooltip()
-        .onChange(onChange));
+    onChange: (value: number) => void | Promise<void>,
+    options: SettingRowOptions = {}
+  ): SettingDefinition {
+    return {
+      name,
+      desc,
+      visible: options.visible,
+      render: (setting) => {
+        setting.setName(name)
+          .setDesc(desc)
+          .addSlider((slider) => slider
+            .setLimits(min, max, step)
+            .setValue(getValue())
+            .setDynamicTooltip()
+            .onChange(async (value) => {
+              await onChange(value);
+              this.refreshAfterSettingChange(options);
+            }));
+      }
+    };
   }
 
-  private addDropdownSetting(
+  private createDropdownSetting(
     name: string,
     desc: string,
     getValue: () => string,
     options: Record<string, string>,
-    onChange: (value: string) => void | Promise<void>
-  ): void {
-    new Setting(this.containerEl)
-      .setName(name)
-      .setDesc(desc)
-      .addDropdown((dropdown) => dropdown
-        .addOptions(options)
-        .setValue(getValue())
-        .onChange(onChange));
+    onChange: (value: string) => void | Promise<void>,
+    rowOptions: SettingRowOptions = {}
+  ): SettingDefinition {
+    return {
+      name,
+      desc,
+      visible: rowOptions.visible,
+      render: (setting) => {
+        setting.setName(name)
+          .setDesc(desc)
+          .addDropdown((dropdown) => dropdown
+            .addOptions(options)
+            .setValue(getValue())
+            .onChange(async (value) => {
+              await onChange(value);
+              this.refreshAfterSettingChange(rowOptions);
+            }));
+      }
+    };
   }
 
-  private addGuidanceSetting(name: string, desc: string): void {
-    new Setting(this.containerEl)
-      .setName(name)
-      .setDesc(desc);
+  private createGuidanceSetting(name: string, desc: string): SettingDefinition {
+    return { name, desc };
+  }
+
+  private refreshAfterSettingChange(options: SettingRowOptions): void {
+    if (options.updateAfterChange) {
+      this.update();
+      return;
+    }
+    if (options.updatePreviewAfterChange) {
+      this.updateDisplayPreview();
+    }
   }
 }
 
 type SettingRowOptions = {
   disabled?: () => boolean;
+  visible?: () => boolean;
   updateAfterChange?: boolean;
   updatePreviewAfterChange?: boolean;
 };

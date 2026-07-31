@@ -234,10 +234,20 @@ body.is-mobile .section-meter-target-progress,
   line-height: 1.35;
 }
 
-.section-meter-settings-preview {
+.section-meter-settings-preview-row,
+.section-meter-settings-preview-build-row {
+  display: block;
+  padding: 0;
+  border: 0;
+}
+
+.section-meter-settings-preview-row {
   position: sticky;
   inset-block-start: 0;
   z-index: 5;
+}
+
+.section-meter-settings-preview {
   margin-block: 0 0.55rem;
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--background-modifier-border);

@@ -548,6 +548,7 @@ function createSectionMeterExtension(
     private mobileMeterEl: HTMLElement | null = null;
     private mobileMeterScrollDom: HTMLElement | null = null;
     private mobileMeterScrollHandler: (() => void) | null = null;
+    private readonly mobileMeterMeasureKey = {};
 
     constructor(view: EditorView) {
       const markdown = view.state.doc.toString();
@@ -558,10 +559,10 @@ function createSectionMeterExtension(
       if (getSettings().mobileStickySectionMeter) {
         this.mobileMeterEl = createMobileSectionMeterEl(getSettings().mobileMeterPosition);
         view.dom.appendChild(this.mobileMeterEl);
-        this.mobileMeterScrollHandler = () => this.updateMobileMeter(view);
+        this.mobileMeterScrollHandler = () => this.scheduleMobileMeterUpdate(view);
         this.mobileMeterScrollDom = view.scrollDOM;
         this.mobileMeterScrollDom.addEventListener("scroll", this.mobileMeterScrollHandler, { passive: true });
-        this.updateMobileMeter(view);
+        this.scheduleMobileMeterUpdate(view);
       }
     }
 
@@ -590,7 +591,7 @@ function createSectionMeterExtension(
       }
 
       if (update.docChanged || update.viewportChanged) {
-        this.updateMobileMeter(update.view);
+        this.scheduleMobileMeterUpdate(update.view);
       }
     }
 
@@ -670,7 +671,19 @@ function createSectionMeterExtension(
       return builder.finish();
     }
 
-    private updateMobileMeter(view: EditorView): void {
+    private scheduleMobileMeterUpdate(view: EditorView): void {
+      if (!this.mobileMeterEl) {
+        return;
+      }
+
+      view.requestMeasure({
+        key: this.mobileMeterMeasureKey,
+        read: (measuredView) => getPositionAtVisibleViewportTop(measuredView),
+        write: (position) => this.updateMobileMeterAtPosition(position)
+      });
+    }
+
+    private updateMobileMeterAtPosition(position: number): void {
       if (!this.mobileMeterEl) {
         return;
       }
@@ -678,7 +691,7 @@ function createSectionMeterExtension(
       const target = getActiveWritingTargetAtPosition(
         this.summaries,
         this.noteTarget,
-        getPositionAtVisibleViewportTop(view)
+        position
       );
       if (!target) {
         this.mobileMeterEl.classList.add("section-meter-mobile-current-section-hidden");

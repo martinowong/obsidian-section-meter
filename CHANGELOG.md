@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.2
+
+- Restored heading badges when the Beta mobile meter is enabled by moving viewport measurements into CodeMirror's supported layout phase.
+
 ## 1.1.1
 
 - Fixed the settings page stopping after the live preview on Obsidian 1.13.

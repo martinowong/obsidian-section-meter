@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.1
+
+- Fixed the settings page stopping after the live preview on Obsidian 1.13.
+- Restored reliable creation of heading badges, status-bar statistics, target progress, and the Beta mobile meter using Obsidian's detached element helpers.
+
 ## 1.1.0
 
 - Added native Obsidian 1.13 settings search, making every Section Writing Stats option easier to find from Obsidian's settings.

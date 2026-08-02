@@ -704,7 +704,7 @@ function getPositionAtVisibleViewportTop(view: EditorView): number {
 function createMobileSectionMeterEl(
   position: SectionMeterSettings["mobileMeterPosition"]
 ): HTMLElement {
-  const meterEl = activeDocument.createEl("button");
+  const meterEl = createEl("button");
   meterEl.className = "section-meter-mobile-current-section";
   meterEl.type = "button";
   meterEl.dataset.displayMode = "percentage";
@@ -727,14 +727,14 @@ function renderMobileSectionMeter(
   const progressEl = createTargetProgressEl(target);
   progressEl.classList.add("section-meter-mobile-current-section-progress");
 
-  const labelEl = activeDocument.createSpan();
+  const labelEl = createSpan();
   labelEl.className = "section-meter-mobile-current-section-label";
 
-  const percentageEl = activeDocument.createSpan();
+  const percentageEl = createSpan();
   percentageEl.className = "section-meter-mobile-current-section-percentage";
   percentageEl.textContent = `${Math.round(target.percent)}%`;
 
-  const countEl = activeDocument.createSpan();
+  const countEl = createSpan();
   countEl.className = "section-meter-mobile-current-section-count";
   countEl.textContent = formatWritingTargetCountLabel(target);
 
@@ -1378,22 +1378,22 @@ function createBuildInfoLabel(version: string): string {
 function createSettingsHeadingPreview(
   settings: SectionMeterSettings
 ): { el: HTMLElement; valueEl: HTMLElement } {
-  const el = activeDocument.createDiv();
+  const el = createDiv();
   el.className = "section-meter-settings-preview-example";
 
-  const labelEl = activeDocument.createDiv();
+  const labelEl = createDiv();
   labelEl.className = "section-meter-settings-preview-example-label";
   labelEl.textContent = "Heading badge";
   el.appendChild(labelEl);
 
-  const headingEl = activeDocument.createDiv();
+  const headingEl = createDiv();
   headingEl.className = "section-meter-settings-preview-heading-sample";
-  const markerEl = activeDocument.createSpan();
+  const markerEl = createSpan();
   markerEl.className = "section-meter-settings-preview-heading-marker";
   markerEl.textContent = "#";
   headingEl.appendChild(markerEl);
 
-  const textEl = activeDocument.createSpan();
+  const textEl = createSpan();
   textEl.textContent = "Example heading";
   headingEl.appendChild(textEl);
 
@@ -1435,17 +1435,17 @@ function createPreviewHeadingLabel(settings: SectionMeterSettings): string {
 function createSettingsStatusBarPreview(
   settings: SectionMeterSettings
 ): { el: HTMLElement; contentEl: HTMLElement } {
-  const el = activeDocument.createDiv();
+  const el = createDiv();
   el.className = "section-meter-settings-preview-example";
 
-  const labelEl = activeDocument.createDiv();
+  const labelEl = createDiv();
   labelEl.className = "section-meter-settings-preview-example-label";
   labelEl.textContent = "Status bar";
   el.appendChild(labelEl);
 
-  const barEl = activeDocument.createDiv();
+  const barEl = createDiv();
   barEl.className = "section-meter-settings-preview-statusbar";
-  const contentEl = activeDocument.createSpan();
+  const contentEl = createSpan();
   contentEl.className = "section-meter-settings-preview-statusbar-content";
   barEl.appendChild(contentEl);
   el.appendChild(barEl);
@@ -1469,7 +1469,7 @@ function createSettingsStatusBarParts(settings: SectionMeterSettings): HTMLEleme
   }
 
   if (settings.showStatusBarSelectionStats) {
-    const selectionPart = activeDocument.createSpan();
+    const selectionPart = createSpan();
     selectionPart.className = "section-meter-settings-preview-statusbar-segment";
     if (parts.length > 0) {
       selectionPart.appendChild(createStatusBarSeparatorEl());
@@ -1479,7 +1479,7 @@ function createSettingsStatusBarParts(settings: SectionMeterSettings): HTMLEleme
   }
 
   if (parts.length === 0) {
-    const emptyEl = activeDocument.createSpan();
+    const emptyEl = createSpan();
     emptyEl.className = "section-meter-settings-preview-statusbar-empty";
     emptyEl.textContent = "Only active section targets appear";
     parts.push(emptyEl);
@@ -1738,9 +1738,9 @@ function createReadingTimeBadge(
   selectOnClick = false,
   scopeLabel = "Reading stats"
 ): HTMLElement {
-  const badge = activeDocument.createSpan();
+  const badge = createSpan();
   badge.className = ["section-meter-badge", extraClass].filter(Boolean).join(" ");
-  const labelEl = activeDocument.createSpan();
+  const labelEl = createSpan();
   labelEl.className = "section-meter-badge-label";
   labelEl.textContent = label;
   badge.appendChild(labelEl);
@@ -1775,10 +1775,10 @@ function createReadingTimeBadge(
 }
 
 function createBadgeTargetGroupEl(target: WritingTargetProgress): HTMLElement {
-  const groupEl = activeDocument.createSpan();
+  const groupEl = createSpan();
   groupEl.className = "section-meter-target-group";
 
-  const captionEl = activeDocument.createSpan();
+  const captionEl = createSpan();
   captionEl.className = "section-meter-target-caption";
   captionEl.textContent = "Target";
   groupEl.appendChild(captionEl);
@@ -1793,10 +1793,10 @@ function createStatusBarStatsEl(
   stats: SelectionStats,
   settings: SectionMeterSettings
 ): HTMLElement {
-  const wrapper = activeDocument.createSpan();
+  const wrapper = createSpan();
   wrapper.className = "section-meter-status-bar-part";
 
-  const labelEl = activeDocument.createSpan();
+  const labelEl = createSpan();
   labelEl.textContent = `${scopeLabel}: ${formatConfiguredStats(stats, settings)}`;
   wrapper.appendChild(labelEl);
 
@@ -1814,7 +1814,7 @@ function createStatusBarStatsEl(
 }
 
 function createStatusBarTargetEl(target: WritingTargetProgress): HTMLElement {
-  const wrapper = activeDocument.createSpan();
+  const wrapper = createSpan();
   wrapper.className = "section-meter-status-bar-part section-meter-status-bar-target";
 
   const targetTextEl = createTargetLabelEl(target);
@@ -1827,35 +1827,35 @@ function createStatusBarTargetEl(target: WritingTargetProgress): HTMLElement {
 }
 
 function createStatusBarSeparatorEl(): HTMLElement {
-  const separator = activeDocument.createSpan();
+  const separator = createSpan();
   separator.className = "section-meter-status-bar-separator";
   separator.textContent = "|";
   return separator;
 }
 
 function createTargetLabelEl(target: WritingTargetProgress): HTMLElement {
-  const labelEl = activeDocument.createSpan();
+  const labelEl = createSpan();
   labelEl.className = "section-meter-target-label";
   labelEl.textContent = target.label;
   return labelEl;
 }
 
 function createInlineTargetSeparatorEl(): HTMLElement {
-  const separator = activeDocument.createSpan();
+  const separator = createSpan();
   separator.className = "section-meter-target-separator";
   separator.textContent = "|";
   return separator;
 }
 
 function createTargetProgressEl(target: WritingTargetProgress): HTMLElement {
-  const progressEl = activeDocument.createSpan();
+  const progressEl = createSpan();
   progressEl.className = [
     "section-meter-target-progress",
     getTargetProgressStateClass(target)
   ].join(" ");
   progressEl.setAttribute("aria-hidden", "true");
 
-  const fillEl = activeDocument.createSpan();
+  const fillEl = createSpan();
   fillEl.className = "section-meter-target-progress-fill";
   fillEl.style.width = `${Math.min(100, Math.max(0, target.percent))}%`;
   progressEl.appendChild(fillEl);

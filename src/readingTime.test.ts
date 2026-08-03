@@ -7,6 +7,7 @@ import {
   formatSeconds,
   formatWritingTargetCountLabel,
   getActiveSectionTargetAtPosition,
+  getActiveSectionTargetSummaryAtPosition,
   getActiveWritingTargetAtPosition,
   parseHeadingSections,
   parseWritingTargetLine,
@@ -503,6 +504,14 @@ describe("writing target progress", () => {
       null,
       markdown.indexOf("child words")
     )).toMatchObject({ targetValue: 20 });
+    expect(getActiveSectionTargetSummaryAtPosition(
+      summaries,
+      markdown.indexOf("child words")
+    )).toMatchObject({
+      title: "Parent",
+      wordCount: 3,
+      target: { targetValue: 20 }
+    });
   });
 
   it("falls back to the whole-note target in the mobile meter", () => {

@@ -168,6 +168,8 @@ Release notes should be friendly, comprehensible, and a little more descriptive 
 
 > Section Writing Stats now has a sticky live preview in settings, so you can immediately see how your heading badges and status bar will look while you adjust them, plus new compact and minutes-only display options for a cleaner writing view.
 
+Before publishing any release, show the user the exact proposed release notes and wait for explicit approval. A request to create or publish a release does not by itself approve the release-note wording.
+
 Publishing a GitHub release triggers `.github/workflows/release.yml`, which runs the tests, rebuilds the plugin, and attaches:
 
 - `main.js`

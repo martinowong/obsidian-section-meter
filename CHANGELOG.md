@@ -1,8 +1,14 @@
 # Changelog
 
+## 1.2.0
+
+- **Beta:** You can now drag the mobile target bar to the top or bottom and tap either side to switch stats.
+- **Bugfix:** The mobile target bar no longer appears twice or crowds Obsidian’s mobile toolbar.
+- **Bugfix:** The settings preview now stays visible while you scroll, per the setting.
+
 ## 1.1.2
 
-- Restored heading badges when the Beta mobile meter is enabled by moving viewport measurements into CodeMirror's supported layout phase.
+- Fixed a bug that made heading stats disappear with the Beta mobile meter.
 
 ## 1.1.1
 

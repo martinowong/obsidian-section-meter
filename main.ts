@@ -36,7 +36,7 @@ import {
   formatReadingTime,
   formatWritingTargetCountLabel,
   getActiveSectionTargetAtPosition,
-  getActiveWritingTargetAtPosition,
+  getActiveSectionTargetSummaryAtPosition,
   estimateSeconds,
   parseWritingTargetLine,
   shouldShowSummary,
@@ -99,7 +99,8 @@ export default class SectionMeterPlugin extends Plugin {
     this.registerEditorExtension(
       this.extensionCompartment.of(createSectionMeterExtension(
         () => this.settings,
-        (status) => this.updateStatusBar(status)
+        (status) => this.updateStatusBar(status),
+        (position) => this.updateMobileMeterPosition(position)
       ))
     );
     this.addSettingTab(new SectionMeterSettingTab(this.app, this));
@@ -141,6 +142,15 @@ export default class SectionMeterPlugin extends Plugin {
     this.refreshEditorExtensions();
     this.refreshTitleBadges();
     this.refreshStatusBarFromActiveView();
+  }
+
+  private updateMobileMeterPosition(position: SectionMeterSettings["mobileMeterPosition"]): void {
+    if (this.settings.mobileMeterPosition === position) {
+      return;
+    }
+
+    this.settings.mobileMeterPosition = position;
+    void this.saveSettings();
   }
 
   private registerWritingTargetCommands() {
@@ -233,7 +243,8 @@ export default class SectionMeterPlugin extends Plugin {
   private refreshEditorExtensions() {
     const extension = createSectionMeterExtension(
       () => this.settings,
-      (status) => this.updateStatusBar(status)
+      (status) => this.updateStatusBar(status),
+      (position) => this.updateMobileMeterPosition(position)
     );
 
     this.app.workspace.getLeavesOfType("markdown").forEach((leaf) => {
@@ -536,12 +547,15 @@ function formatWritingTargetInputValue(target: WritingTarget | null): string {
 
 function createSectionMeterExtension(
   getSettings: () => SectionMeterSettings,
-  updateStatusBar: (status: StatusBarStats | null) => void
+  updateStatusBar: (status: StatusBarStats | null) => void,
+  updateMobileMeterPosition: (
+    position: SectionMeterSettings["mobileMeterPosition"]
+  ) => void
 ): Extension {
   class SectionMeterViewPlugin implements PluginValue {
     decorations: DecorationSet;
     private summaries: SectionMeterSummary[];
-    private noteTarget: WritingTargetProgress | null;
+    private noteSummary: ReturnType<typeof summarizeNoteReadingTime>;
     private selectionBadgeUpdateTimer: number | null = null;
     private selectionBadgeRefreshQueued = false;
     private applySelectionBadgeOverride = true;
@@ -553,11 +567,14 @@ function createSectionMeterExtension(
     constructor(view: EditorView) {
       const markdown = view.state.doc.toString();
       this.summaries = summarizeSectionReadingTimes(markdown, getSettings());
-      this.noteTarget = summarizeNoteReadingTime(markdown, getSettings()).target;
+      this.noteSummary = summarizeNoteReadingTime(markdown, getSettings());
       this.decorations = this.buildDecorations(view);
 
       if (getSettings().mobileStickySectionMeter) {
-        this.mobileMeterEl = createMobileSectionMeterEl(getSettings().mobileMeterPosition);
+        this.mobileMeterEl = createMobileSectionMeterEl(
+          getSettings().mobileMeterPosition,
+          updateMobileMeterPosition
+        );
         view.dom.appendChild(this.mobileMeterEl);
         this.mobileMeterScrollHandler = () => this.scheduleMobileMeterUpdate(view);
         this.mobileMeterScrollDom = view.scrollDOM;
@@ -570,7 +587,7 @@ function createSectionMeterExtension(
       if (update.docChanged) {
         const markdown = update.state.doc.toString();
         this.summaries = summarizeSectionReadingTimes(markdown, getSettings());
-        this.noteTarget = summarizeNoteReadingTime(markdown, getSettings()).target;
+        this.noteSummary = summarizeNoteReadingTime(markdown, getSettings());
       }
 
       let shouldRebuildDecorations = update.docChanged || update.viewportChanged;
@@ -688,18 +705,19 @@ function createSectionMeterExtension(
         return;
       }
 
-      const target = getActiveWritingTargetAtPosition(
+      const sectionSummary = getActiveSectionTargetSummaryAtPosition(
         this.summaries,
-        this.noteTarget,
         position
       );
+      const summary = sectionSummary ?? this.noteSummary;
+      const target = sectionSummary?.target ?? this.noteSummary.target;
       if (!target) {
         this.mobileMeterEl.classList.add("section-meter-mobile-current-section-hidden");
         return;
       }
 
       this.mobileMeterEl.classList.remove("section-meter-mobile-current-section-hidden");
-      renderMobileSectionMeter(this.mobileMeterEl, target);
+      renderMobileSectionMeter(this.mobileMeterEl, target, summary, getSettings());
     }
   }
 
@@ -715,28 +733,64 @@ function getPositionAtVisibleViewportTop(view: EditorView): number {
 }
 
 function createMobileSectionMeterEl(
-  position: SectionMeterSettings["mobileMeterPosition"]
+  position: SectionMeterSettings["mobileMeterPosition"],
+  updatePosition: (position: SectionMeterSettings["mobileMeterPosition"]) => void
 ): HTMLElement {
-  const meterEl = createEl("button");
+  activeDocument
+    .querySelectorAll(".section-meter-mobile-current-section")
+    .forEach((meter) => meter.remove());
+
+  const meterEl = createDiv();
   meterEl.className = "section-meter-mobile-current-section";
-  meterEl.type = "button";
   meterEl.dataset.displayMode = "percentage";
   meterEl.dataset.position = position;
+  meterEl.setAttribute("role", "group");
+  meterEl.setAttribute(
+    "aria-label",
+    "Current section statistics and writing target. Drag vertically to move the meter."
+  );
   meterEl.setAttribute("aria-live", "off");
-  meterEl.addEventListener("pointerdown", (event) => event.preventDefault());
-  meterEl.addEventListener("click", () => {
-    meterEl.dataset.displayMode = meterEl.dataset.displayMode === "count"
-      ? "percentage"
-      : "count";
-    updateMobileMeterAccessibilityLabel(meterEl);
-  });
+  addMobileMeterInteractionHandlers(meterEl, updatePosition);
   return meterEl;
 }
 
 function renderMobileSectionMeter(
   meterEl: HTMLElement,
-  target: WritingTargetProgress
+  target: WritingTargetProgress,
+  stats: Pick<SectionMeterSummary, "wordCount" | "characterCount" | "seconds">,
+  settings: SectionMeterSettings
 ): void {
+  const supplementalMetrics = getMobileSupplementalMetrics(target.metric);
+  const currentSupplementalMetric = supplementalMetrics.includes(
+    meterEl.dataset.supplementalMetric as WritingTargetMetric
+  )
+    ? meterEl.dataset.supplementalMetric as WritingTargetMetric
+    : supplementalMetrics[0];
+
+  meterEl.dataset.supplementalMetric = currentSupplementalMetric;
+  meterEl.dataset.supplementalPrimaryMetric = supplementalMetrics[0];
+  meterEl.dataset.supplementalSecondaryMetric = supplementalMetrics[1];
+  meterEl.dataset.supplementalPrimaryLabel = formatMobileSupplementalMetric(
+    supplementalMetrics[0],
+    stats,
+    settings
+  );
+  meterEl.dataset.supplementalSecondaryLabel = formatMobileSupplementalMetric(
+    supplementalMetrics[1],
+    stats,
+    settings
+  );
+
+  const supplementalEl = createEl("button");
+  supplementalEl.type = "button";
+  supplementalEl.className = "section-meter-mobile-current-section-stat";
+  supplementalEl.dataset.mobileMeterAction = "supplemental";
+
+  const targetEl = createEl("button");
+  targetEl.type = "button";
+  targetEl.className = "section-meter-mobile-current-section-target";
+  targetEl.dataset.mobileMeterAction = "target";
+
   const progressEl = createTargetProgressEl(target);
   progressEl.classList.add("section-meter-mobile-current-section-progress");
 
@@ -752,23 +806,197 @@ function renderMobileSectionMeter(
   countEl.textContent = formatWritingTargetCountLabel(target);
 
   labelEl.append(percentageEl, countEl);
-  meterEl.replaceChildren(progressEl, labelEl);
+  targetEl.append(progressEl, labelEl);
+  meterEl.replaceChildren(supplementalEl, targetEl);
   meterEl.dataset.percentageLabel = percentageEl.textContent;
   meterEl.dataset.countLabel = countEl.textContent;
-  updateMobileMeterAccessibilityLabel(meterEl);
+  updateMobileSupplementalMetric(meterEl);
+  updateMobileTargetAccessibilityLabel(meterEl);
 }
 
-function updateMobileMeterAccessibilityLabel(meterEl: HTMLElement): void {
+function getMobileSupplementalMetrics(
+  targetMetric: WritingTargetMetric
+): [WritingTargetMetric, WritingTargetMetric] {
+  if (targetMetric === "words") {
+    return ["characters", "reading-time"];
+  }
+
+  if (targetMetric === "characters") {
+    return ["words", "reading-time"];
+  }
+
+  return ["words", "characters"];
+}
+
+function formatMobileSupplementalMetric(
+  metric: WritingTargetMetric,
+  stats: Pick<SectionMeterSummary, "wordCount" | "characterCount" | "seconds">,
+  settings: SectionMeterSettings
+): string {
+  return formatReadingTime(stats.wordCount, stats.characterCount, {
+    ...settings,
+    showWords: metric === "words",
+    showCharacters: metric === "characters",
+    showTiming: metric === "reading-time",
+    compactMode: true,
+    showTimeAsMinutesOnly: false
+  });
+}
+
+function updateMobileSupplementalMetric(meterEl: HTMLElement): void {
+  const supplementalEl = meterEl.querySelector<HTMLElement>(
+    ".section-meter-mobile-current-section-stat"
+  );
+  if (!supplementalEl) {
+    return;
+  }
+
+  const showPrimary = meterEl.dataset.supplementalMetric
+    === meterEl.dataset.supplementalPrimaryMetric;
+  const visibleLabel = showPrimary
+    ? meterEl.dataset.supplementalPrimaryLabel
+    : meterEl.dataset.supplementalSecondaryLabel;
+  const nextLabel = showPrimary
+    ? meterEl.dataset.supplementalSecondaryLabel
+    : meterEl.dataset.supplementalPrimaryLabel;
+  supplementalEl.textContent = visibleLabel ?? "";
+  supplementalEl.setAttribute(
+    "aria-label",
+    `${visibleLabel ?? "Section statistic"}. Tap to show ${nextLabel ?? "the other statistic"}.`
+  );
+}
+
+function updateMobileTargetAccessibilityLabel(meterEl: HTMLElement): void {
+  const targetEl = meterEl.querySelector<HTMLElement>(
+    ".section-meter-mobile-current-section-target"
+  );
+  if (!targetEl) {
+    return;
+  }
+
   const showCount = meterEl.dataset.displayMode === "count";
   const visibleLabel = showCount
     ? meterEl.dataset.countLabel
     : meterEl.dataset.percentageLabel;
   const nextLabel = showCount ? "percentage" : "current value and target";
-  meterEl.setAttribute(
+  targetEl.setAttribute(
     "aria-label",
     `Writing target ${visibleLabel ?? ""}. Tap to show ${nextLabel}.`
   );
-  meterEl.setAttribute("aria-pressed", String(showCount));
+  targetEl.setAttribute("aria-pressed", String(showCount));
+}
+
+function addMobileMeterInteractionHandlers(
+  meterEl: HTMLElement,
+  updatePosition: (position: SectionMeterSettings["mobileMeterPosition"]) => void
+): void {
+  const dragThreshold = 10;
+  let activePointerId: number | null = null;
+  let startY = 0;
+  let startTop = 0;
+  let meterHeight = 0;
+  let dragged = false;
+  let suppressNextClick = false;
+
+  meterEl.addEventListener("pointerdown", (event) => {
+    if (!event.isPrimary || event.button !== 0) {
+      return;
+    }
+
+    const bounds = meterEl.getBoundingClientRect();
+    activePointerId = event.pointerId;
+    startY = event.clientY;
+    startTop = bounds.top;
+    meterHeight = bounds.height;
+    dragged = false;
+    meterEl.setPointerCapture(event.pointerId);
+  });
+
+  meterEl.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== activePointerId) {
+      return;
+    }
+
+    const deltaY = event.clientY - startY;
+    if (!dragged && Math.abs(deltaY) < dragThreshold) {
+      return;
+    }
+
+    dragged = true;
+    event.preventDefault();
+    meterEl.classList.add("section-meter-mobile-current-section-dragging");
+    const viewportHeight = meterEl.ownerDocument.defaultView?.innerHeight ?? window.innerHeight;
+    const nextTop = Math.min(
+      viewportHeight - meterHeight - 8,
+      Math.max(8, startTop + deltaY)
+    );
+    meterEl.setCssProps({ "--section-meter-drag-top": `${nextTop}px` });
+  });
+
+  const finishDrag = (event: PointerEvent, cancelled: boolean): void => {
+    if (event.pointerId !== activePointerId) {
+      return;
+    }
+
+    if (meterEl.hasPointerCapture(event.pointerId)) {
+      meterEl.releasePointerCapture(event.pointerId);
+    }
+    activePointerId = null;
+
+    if (!dragged) {
+      return;
+    }
+
+    suppressNextClick = !cancelled;
+    if (!cancelled) {
+      (meterEl.ownerDocument.defaultView ?? window).setTimeout(() => {
+        suppressNextClick = false;
+      }, 0);
+    }
+    const viewportHeight = meterEl.ownerDocument.defaultView?.innerHeight ?? window.innerHeight;
+    const centerY = meterEl.getBoundingClientRect().top + (meterHeight / 2);
+    const nextPosition = cancelled
+      ? meterEl.dataset.position as SectionMeterSettings["mobileMeterPosition"]
+      : centerY < viewportHeight / 2 ? "top" : "bottom";
+
+    meterEl.classList.remove("section-meter-mobile-current-section-dragging");
+    meterEl.setCssProps({ "--section-meter-drag-top": "" });
+    meterEl.dataset.position = nextPosition;
+
+    if (!cancelled) {
+      updatePosition(nextPosition);
+    }
+  };
+
+  meterEl.addEventListener("pointerup", (event) => finishDrag(event, false));
+  meterEl.addEventListener("pointercancel", (event) => finishDrag(event, true));
+  meterEl.addEventListener("click", (event) => {
+    if (suppressNextClick) {
+      suppressNextClick = false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+
+    const actionEl = (event.target as Element).closest<HTMLElement>(
+      "[data-mobile-meter-action]"
+    );
+    if (actionEl?.dataset.mobileMeterAction === "supplemental") {
+      meterEl.dataset.supplementalMetric = meterEl.dataset.supplementalMetric
+        === meterEl.dataset.supplementalPrimaryMetric
+        ? meterEl.dataset.supplementalSecondaryMetric
+        : meterEl.dataset.supplementalPrimaryMetric;
+      updateMobileSupplementalMetric(meterEl);
+      return;
+    }
+
+    if (actionEl?.dataset.mobileMeterAction === "target") {
+      meterEl.dataset.displayMode = meterEl.dataset.displayMode === "count"
+        ? "percentage"
+        : "count";
+      updateMobileTargetAccessibilityLabel(meterEl);
+    }
+  }, true);
 }
 
 class ReadingTimeWidget extends WidgetType {
@@ -825,7 +1053,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
 
   getSettingDefinitions(): SettingDefinitionItem[] {
     return [
-      this.createDisplayPreviewSetting(),
+      this.getPreviewSettings(),
       this.createToggleSetting(
         "Keep live preview visible",
         "Keep the preview pinned while you scroll through the settings.",
@@ -843,6 +1071,14 @@ class SectionMeterSettingTab extends PluginSettingTab {
       this.getMobileSettings(),
       this.getWritingTargetSettings()
     ];
+  }
+
+  private getPreviewSettings(): SettingDefinitionGroup {
+    return {
+      type: "group",
+      cls: "section-meter-settings-preview-group",
+      items: [this.createDisplayPreviewSetting()]
+    };
   }
 
   private getBadgeDisplaySettings(): SettingDefinitionGroup {
@@ -1171,7 +1407,11 @@ class SectionMeterSettingTab extends PluginSettingTab {
       render: (setting) => {
         setting.settingEl.empty();
         setting.settingEl.classList.add("section-meter-settings-preview-row");
-        setting.settingEl.classList.toggle(
+        const previewGroupEl = setting.settingEl.closest<HTMLElement>(
+          ".section-meter-settings-preview-group"
+        );
+        this.previewEl = previewGroupEl ?? setting.settingEl;
+        this.previewEl.classList.toggle(
           "section-meter-settings-preview-static",
           !this.plugin.settings.previewSticky
         );
@@ -1179,7 +1419,6 @@ class SectionMeterSettingTab extends PluginSettingTab {
         const previewEl = setting.settingEl.createDiv({
           cls: "section-meter-settings-preview"
         });
-        this.previewEl = setting.settingEl;
 
         previewEl.createDiv({
           cls: "section-meter-settings-preview-heading",

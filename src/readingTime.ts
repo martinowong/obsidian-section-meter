@@ -242,6 +242,13 @@ export function getActiveSectionTargetAtPosition(
   summaries: SectionMeterSummary[],
   position: number
 ): WritingTargetProgress | null {
+  return getActiveSectionTargetSummaryAtPosition(summaries, position)?.target ?? null;
+}
+
+export function getActiveSectionTargetSummaryAtPosition(
+  summaries: SectionMeterSummary[],
+  position: number
+): SectionMeterSummary | null {
   const documentEnd = summaries.reduce(
     (furthestEnd, summary) => Math.max(furthestEnd, summary.to),
     0
@@ -253,7 +260,7 @@ export function getActiveSectionTargetAtPosition(
       && (position < summary.to || (position === documentEnd && summary.to === documentEnd));
 
     if (containsPosition && summary.target) {
-      return summary.target;
+      return summary;
     }
   }
 

@@ -241,7 +241,7 @@ body.is-mobile .section-meter-target-progress,
   border: 0;
 }
 
-.section-meter-settings-preview-row {
+.section-meter-settings-preview-group {
   position: sticky;
   inset-block-start: 0;
   z-index: 5;
@@ -416,16 +416,15 @@ body.is-mobile .section-meter-mobile-current-section,
   inset-block-end: calc(
     var(--keyboard-height, 0px)
     + var(--mobile-toolbar-height, 48px)
-    + 0.25rem
+    + var(--safe-area-inset-bottom, 0px)
+    + 0.5rem
   );
   display: flex;
-  gap: 0.4rem;
   align-items: center;
   max-inline-size: 24rem;
   min-block-size: 1.6rem;
   margin-inline: auto;
-  padding: 0.18rem 0.45rem;
-  appearance: none;
+  padding: 0.18rem;
   border: 1px solid var(--background-modifier-border);
   border-radius: 999px;
   color: var(--text-normal);
@@ -436,8 +435,53 @@ body.is-mobile .section-meter-mobile-current-section,
   font-variant-numeric: tabular-nums;
   line-height: 1;
   pointer-events: auto;
-  touch-action: manipulation;
+  touch-action: none;
+  user-select: none;
   -webkit-tap-highlight-color: transparent;
+}
+
+.section-meter-mobile-current-section-stat,
+.section-meter-mobile-current-section-target {
+  min-block-size: 1.2rem;
+  padding: 0;
+  appearance: none;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-variant-numeric: inherit;
+  line-height: inherit;
+}
+
+.section-meter-mobile-current-section-stat {
+  flex: 0 0 auto;
+  min-inline-size: 3.1em;
+  max-inline-size: 32%;
+  padding-inline: 0.35rem 0.45rem;
+  overflow: hidden;
+  border-inline-end: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  font-weight: 500;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.section-meter-mobile-current-section-target {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 0.4rem;
+  align-items: center;
+  min-inline-size: 0;
+  padding-inline: 0.4rem 0.3rem;
+}
+
+.section-meter-mobile-current-section-dragging {
+  inset-block-start: var(--section-meter-drag-top) !important;
+  inset-block-end: auto !important;
+  cursor: grabbing;
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.2);
+  opacity: 0.96;
 }
 
 .section-meter-mobile-current-section-label {
@@ -461,7 +505,7 @@ body.is-mobile .section-meter-mobile-current-section[data-position="top"],
   inset-block-start: calc(
     var(--safe-area-inset-top, 0px)
     + var(--header-height, 40px)
-    + 0.25rem
+    + 0.05rem
   );
   inset-block-end: auto;
 }

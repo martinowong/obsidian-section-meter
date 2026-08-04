@@ -60,6 +60,7 @@ const DEFAULT_SETTINGS: SectionMeterSettings = {
   labelSeparator: ",",
   minimumWordCount: 0,
   hideEmptySections: false,
+  showInlineTitleStats: true,
   showStatusBarNoteStats: true,
   showStatusBarSelectionStats: true,
   showStatusBarWords: true,
@@ -298,8 +299,18 @@ export default class SectionMeterPlugin extends Plugin {
       .querySelectorAll(".section-meter-title-badge")
       .forEach((badge) => badge.remove());
     container
-      .querySelectorAll(".section-meter-title-row")
-      .forEach((row) => row.classList.remove("section-meter-title-row"));
+      .querySelectorAll<HTMLElement>(".section-meter-title-group")
+      .forEach((group) => {
+        const titleEl = group.querySelector<HTMLElement>(":scope > .inline-title");
+        if (titleEl && group.parentElement) {
+          group.parentElement.insertBefore(titleEl, group);
+        }
+        group.remove();
+      });
+
+    if (!this.settings.showInlineTitleStats) {
+      return;
+    }
 
     const titleEl = container.querySelector<HTMLElement>(".inline-title");
     const titleRow = titleEl?.parentElement;
@@ -318,8 +329,9 @@ export default class SectionMeterPlugin extends Plugin {
       false,
       "Whole note stats"
     );
-    titleRow.classList.add("section-meter-title-row");
-    titleEl.insertAdjacentElement("afterend", badge);
+    const titleGroup = titleRow.createDiv({ cls: "section-meter-title-group" });
+    titleRow.insertBefore(titleGroup, titleEl);
+    titleGroup.append(titleEl, badge);
   }
 
   private updateStatusBar(status: StatusBarStats | null) {
@@ -898,7 +910,16 @@ function addMobileMeterInteractionHandlers(
   let dragged = false;
   let suppressNextClick = false;
 
+  const stopTouchGesturePropagation = (event: TouchEvent): void => {
+    event.stopPropagation();
+  };
+  meterEl.addEventListener("touchstart", stopTouchGesturePropagation, { passive: true });
+  meterEl.addEventListener("touchmove", stopTouchGesturePropagation, { passive: true });
+  meterEl.addEventListener("touchend", stopTouchGesturePropagation, { passive: true });
+  meterEl.addEventListener("touchcancel", stopTouchGesturePropagation, { passive: true });
+
   meterEl.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
     if (!event.isPrimary || event.button !== 0) {
       return;
     }
@@ -909,10 +930,10 @@ function addMobileMeterInteractionHandlers(
     startTop = bounds.top;
     meterHeight = bounds.height;
     dragged = false;
-    meterEl.setPointerCapture(event.pointerId);
   });
 
   meterEl.addEventListener("pointermove", (event) => {
+    event.stopPropagation();
     if (event.pointerId !== activePointerId) {
       return;
     }
@@ -924,6 +945,9 @@ function addMobileMeterInteractionHandlers(
 
     dragged = true;
     event.preventDefault();
+    if (!meterEl.hasPointerCapture(event.pointerId)) {
+      meterEl.setPointerCapture(event.pointerId);
+    }
     meterEl.classList.add("section-meter-mobile-current-section-dragging");
     const viewportHeight = meterEl.ownerDocument.defaultView?.innerHeight ?? window.innerHeight;
     const nextTop = Math.min(
@@ -968,9 +992,16 @@ function addMobileMeterInteractionHandlers(
     }
   };
 
-  meterEl.addEventListener("pointerup", (event) => finishDrag(event, false));
-  meterEl.addEventListener("pointercancel", (event) => finishDrag(event, true));
+  meterEl.addEventListener("pointerup", (event) => {
+    event.stopPropagation();
+    finishDrag(event, false);
+  });
+  meterEl.addEventListener("pointercancel", (event) => {
+    event.stopPropagation();
+    finishDrag(event, true);
+  });
   meterEl.addEventListener("click", (event) => {
+    event.stopPropagation();
     if (suppressNextClick) {
       suppressNextClick = false;
       event.preventDefault();
@@ -1086,6 +1117,15 @@ class SectionMeterSettingTab extends PluginSettingTab {
       type: "group",
       heading: "Badge display",
       items: [
+        this.createToggleSetting(
+          "Show inline title stats",
+          "Show whole-note stats beside the inline note title.",
+          () => this.plugin.settings.showInlineTitleStats,
+          async (value) => {
+            this.plugin.settings.showInlineTitleStats = value;
+            await this.plugin.saveSettings();
+          }
+        ),
         this.createToggleSetting(
           "Word count",
           "Show readable word counts in heading and title badges.",
@@ -1910,6 +1950,10 @@ function normalizeSettings(settings: StoredSettings): SectionMeterSettings {
     hideEmptySections: normalizeBoolean(
       settings.hideEmptySections,
       DEFAULT_SETTINGS.hideEmptySections
+    ),
+    showInlineTitleStats: normalizeBoolean(
+      settings.showInlineTitleStats,
+      DEFAULT_SETTINGS.showInlineTitleStats
     ),
     showStatusBarNoteStats:
       normalizeBoolean(

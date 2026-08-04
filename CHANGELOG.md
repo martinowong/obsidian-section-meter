@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.1
+
+- Added a **Show inline title stats** setting under Badge display.
+- Fixed whole-note stats appearing away from the inline note title; they now sit directly beside it.
+- **Beta: Mobile target meter**
+  - Move it between the top and bottom of the editor.
+  - Tap it to switch displayed stats.
+  - Improved touch and drag handling.
+  - Fixed interference with editor gestures and Obsidian's command toolbar.
+- Improved the settings preview so it can stay visible while scrolling.
+
 ## 1.2.0
 
 - **Beta:** You can now drag the mobile target bar to the top or bottom and tap either side to switch stats.

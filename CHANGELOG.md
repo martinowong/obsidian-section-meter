@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.2
+
+- Added Command Palette toggles for all stats, heading/title stats, and status-bar stats.
+- Added a **Show heading stats** setting under Badge display.
+- **Beta:** Simplified the mobile target meter into a compact, flat progress strip near the keyboard.
+
 ## 1.2.1
 
 - Added a **Show inline title stats** setting under Badge display.

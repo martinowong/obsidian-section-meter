@@ -29,6 +29,7 @@ const settings = {
   labelSeparator: ",",
   minimumWordCount: 0,
   hideEmptySections: false,
+  showHeadingStats: true,
   showInlineTitleStats: true,
   showStatusBarNoteStats: true,
   showStatusBarSelectionStats: true,

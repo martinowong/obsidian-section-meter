@@ -60,6 +60,7 @@ const DEFAULT_SETTINGS: SectionMeterSettings = {
   labelSeparator: ",",
   minimumWordCount: 0,
   hideEmptySections: false,
+  showHeadingStats: true,
   showInlineTitleStats: true,
   showStatusBarNoteStats: true,
   showStatusBarSelectionStats: true,
@@ -106,6 +107,7 @@ export default class SectionMeterPlugin extends Plugin {
     );
     this.addSettingTab(new SectionMeterSettingTab(this.app, this));
     this.registerWritingTargetCommands();
+    this.registerStatsDisplayCommands();
     this.registerEvent(
       this.app.workspace.on("layout-change", () => {
         this.refreshTitleBadges();
@@ -175,6 +177,66 @@ export default class SectionMeterPlugin extends Plugin {
       name: "Remove current-section writing target",
       editorCallback: (editor) => this.removeWritingTarget(editor, "section")
     });
+  }
+
+  private registerStatsDisplayCommands() {
+    this.addCommand({
+      id: "toggle-all-stats",
+      name: "Toggle all stats",
+      callback: () => {
+        const allStatsVisible = this.settings.showHeadingStats
+          && this.settings.showInlineTitleStats
+          && this.settings.showStatusBarNoteStats
+          && this.settings.showStatusBarSelectionStats;
+        void this.setStatsDisplay({
+          headings: !allStatsVisible,
+          inlineTitle: !allStatsVisible,
+          statusBarNote: !allStatsVisible,
+          statusBarSelection: !allStatsVisible
+        });
+      }
+    });
+    this.addCommand({
+      id: "show-stats-in-status-bar-only",
+      name: "Toggle heading and title stats",
+      callback: () => {
+        const inlineStatsVisible = this.settings.showHeadingStats
+          && this.settings.showInlineTitleStats;
+        void this.setStatsDisplay({
+          headings: !inlineStatsVisible,
+          inlineTitle: !inlineStatsVisible,
+          statusBarNote: this.settings.showStatusBarNoteStats,
+          statusBarSelection: this.settings.showStatusBarSelectionStats
+        });
+      }
+    });
+    this.addCommand({
+      id: "hide-status-bar-stats",
+      name: "Toggle status bar stats",
+      callback: () => {
+        const statusBarStatsVisible = this.settings.showStatusBarNoteStats
+          || this.settings.showStatusBarSelectionStats;
+        void this.setStatsDisplay({
+          headings: this.settings.showHeadingStats,
+          inlineTitle: this.settings.showInlineTitleStats,
+          statusBarNote: !statusBarStatsVisible,
+          statusBarSelection: !statusBarStatsVisible
+        });
+      }
+    });
+  }
+
+  private async setStatsDisplay(display: {
+    headings: boolean;
+    inlineTitle: boolean;
+    statusBarNote: boolean;
+    statusBarSelection: boolean;
+  }): Promise<void> {
+    this.settings.showHeadingStats = display.headings;
+    this.settings.showInlineTitleStats = display.inlineTitle;
+    this.settings.showStatusBarNoteStats = display.statusBarNote;
+    this.settings.showStatusBarSelectionStats = display.statusBarSelection;
+    await this.saveSettings();
   }
 
   private openWritingTargetModal(editor: Editor, scope: WritingTargetScope) {
@@ -661,6 +723,10 @@ function createSectionMeterExtension(
         : null;
       updateStatusBar(statusBarStats);
 
+      if (!settings.showHeadingStats) {
+        return builder.finish();
+      }
+
       for (const summary of this.summaries) {
         if (!isPositionVisible(summary.headingEnd, view.visibleRanges)) {
           continue;
@@ -1117,6 +1183,15 @@ class SectionMeterSettingTab extends PluginSettingTab {
       type: "group",
       heading: "Badge display",
       items: [
+        this.createToggleSetting(
+          "Show heading stats",
+          "Show section stats beside Markdown headings.",
+          () => this.plugin.settings.showHeadingStats,
+          async (value) => {
+            this.plugin.settings.showHeadingStats = value;
+            await this.plugin.saveSettings();
+          }
+        ),
         this.createToggleSetting(
           "Show inline title stats",
           "Show whole-note stats beside the inline note title.",
@@ -1950,6 +2025,10 @@ function normalizeSettings(settings: StoredSettings): SectionMeterSettings {
     hideEmptySections: normalizeBoolean(
       settings.hideEmptySections,
       DEFAULT_SETTINGS.hideEmptySections
+    ),
+    showHeadingStats: normalizeBoolean(
+      settings.showHeadingStats,
+      DEFAULT_SETTINGS.showHeadingStats
     ),
     showInlineTitleStats: normalizeBoolean(
       settings.showInlineTitleStats,

@@ -22,6 +22,7 @@ export interface SectionMeterSettings {
   labelSeparator: string;
   minimumWordCount: number;
   hideEmptySections: boolean;
+  showHeadingStats: boolean;
   showInlineTitleStats: boolean;
   showStatusBarNoteStats: boolean;
   showStatusBarSelectionStats: boolean;

@@ -1,4 +1,4 @@
-import { Compartment, Extension, RangeSetBuilder } from "@codemirror/state";
+import { Compartment, Extension, RangeSetBuilder, Text } from "@codemirror/state";
 import {
   Decoration,
   DecorationSet,
@@ -27,6 +27,7 @@ import type {
 import {
   SectionMeterSettings,
   SectionMeterSummary,
+  ReadingTimeSummaries,
   LegacyLabelStyle,
   WritingTarget,
   WritingTargetMetric,
@@ -41,12 +42,14 @@ import {
   parseWritingTargetLine,
   shouldShowSummary,
   summarizeNoteReadingTime,
+  summarizeReadingTimes,
   summarizeSectionReadingTimes
 } from "./src/readingTime";
 
 declare const __SECTION_METER_BUILD_LABEL__: string;
 
 const DEFAULT_SETTINGS: SectionMeterSettings = {
+  enabled: true,
   wordsPerMinute: 200,
   showWords: true,
   showTiming: true,
@@ -79,7 +82,9 @@ const WORDS_PER_MINUTE_STEP = 10;
 const MIN_TARGET_OVERAGE_WARNING_PERCENT = 100;
 const MAX_TARGET_OVERAGE_WARNING_PERCENT = 200;
 const TARGET_OVERAGE_WARNING_PERCENT_STEP = 5;
+const DOCUMENT_STATS_UPDATE_DELAY_MS = 120;
 const SELECTION_BADGE_UPDATE_DELAY_MS = 220;
+const TITLE_BADGE_UPDATE_DELAY_MS = DOCUMENT_STATS_UPDATE_DELAY_MS + 40;
 const PREVIEW_WORD_COUNT = 640;
 const PREVIEW_CHARACTER_COUNT = 3200;
 
@@ -91,6 +96,13 @@ export default class SectionMeterPlugin extends Plugin {
   settings: SectionMeterSettings = DEFAULT_SETTINGS;
   private extensionCompartment = new Compartment();
   private statusBarItem: HTMLElement | null = null;
+  private lastStatusBarRenderKey = "hidden";
+  private titleBadgeUpdateTimer: number | null = null;
+  private readingTimeCache = new WeakMap<EditorView, {
+    doc: Text;
+    settings: SectionMeterSettings;
+    summaries: ReadingTimeSummaries;
+  }>();
 
   async onload() {
     await this.loadSettings();
@@ -102,7 +114,8 @@ export default class SectionMeterPlugin extends Plugin {
       this.extensionCompartment.of(createSectionMeterExtension(
         () => this.settings,
         (status) => this.updateStatusBar(status),
-        (position) => this.updateMobileMeterPosition(position)
+        (position) => this.updateMobileMeterPosition(position),
+        (view, summaries) => this.cacheReadingTimes(view, summaries)
       ))
     );
     this.addSettingTab(new SectionMeterSettingTab(this.app, this));
@@ -122,9 +135,8 @@ export default class SectionMeterPlugin extends Plugin {
     );
     this.registerEvent(
       this.app.workspace.on("editor-change", (_editor, info) => {
-        if (info instanceof MarkdownView) {
-          this.refreshTitleBadge(info);
-          this.refreshStatusBarFromActiveView();
+        if (this.settings.enabled && info instanceof MarkdownView) {
+          this.scheduleTitleBadgeRefresh(info);
         }
       })
     );
@@ -132,6 +144,13 @@ export default class SectionMeterPlugin extends Plugin {
       this.refreshTitleBadges();
       this.refreshStatusBarFromActiveView();
     });
+  }
+
+  onunload() {
+    if (this.titleBadgeUpdateTimer !== null) {
+      window.clearTimeout(this.titleBadgeUpdateTimer);
+      this.titleBadgeUpdateTimer = null;
+    }
   }
 
   async loadSettings() {
@@ -181,19 +200,10 @@ export default class SectionMeterPlugin extends Plugin {
 
   private registerStatsDisplayCommands() {
     this.addCommand({
-      id: "toggle-all-stats",
-      name: "Toggle all stats",
+      id: "toggle-plugin",
+      name: "Toggle plugin on/off",
       callback: () => {
-        const allStatsVisible = this.settings.showHeadingStats
-          && this.settings.showInlineTitleStats
-          && this.settings.showStatusBarNoteStats
-          && this.settings.showStatusBarSelectionStats;
-        void this.setStatsDisplay({
-          headings: !allStatsVisible,
-          inlineTitle: !allStatsVisible,
-          statusBarNote: !allStatsVisible,
-          statusBarSelection: !allStatsVisible
-        });
+        void this.setPluginEnabled(!this.settings.enabled);
       }
     });
     this.addCommand({
@@ -224,6 +234,12 @@ export default class SectionMeterPlugin extends Plugin {
         });
       }
     });
+  }
+
+  private async setPluginEnabled(enabled: boolean): Promise<void> {
+    this.settings.enabled = enabled;
+    await this.saveSettings();
+    new Notice(`Section Writing Stats ${enabled ? "enabled" : "disabled"}.`);
   }
 
   private async setStatsDisplay(display: {
@@ -307,7 +323,8 @@ export default class SectionMeterPlugin extends Plugin {
     const extension = createSectionMeterExtension(
       () => this.settings,
       (status) => this.updateStatusBar(status),
-      (position) => this.updateMobileMeterPosition(position)
+      (position) => this.updateMobileMeterPosition(position),
+      (view, summaries) => this.cacheReadingTimes(view, summaries)
     );
 
     this.app.workspace.getLeavesOfType("markdown").forEach((leaf) => {
@@ -331,6 +348,11 @@ export default class SectionMeterPlugin extends Plugin {
   }
 
   private refreshStatusBarFromActiveView() {
+    if (!this.settings.enabled) {
+      this.clearStatusBar();
+      return;
+    }
+
     const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!activeView) {
       this.clearStatusBar();
@@ -339,10 +361,13 @@ export default class SectionMeterPlugin extends Plugin {
 
     const editorView = getEditorView(activeView);
     if (editorView) {
+      const summaries = this.getCachedReadingTimes(editorView)
+        ?? summarizeReadingTimes(editorView.state.doc.toString(), this.settings);
       this.updateStatusBar(getStatusBarStats(
         editorView,
         this.settings,
-        summarizeSectionReadingTimes(editorView.state.doc.toString(), this.settings)
+        summaries.sections,
+        summaries.note
       ));
       return;
     }
@@ -353,6 +378,32 @@ export default class SectionMeterPlugin extends Plugin {
       selection: null,
       sectionTarget: null
     });
+  }
+
+  private cacheReadingTimes(view: EditorView, summaries: ReadingTimeSummaries) {
+    this.readingTimeCache.set(view, {
+      doc: view.state.doc,
+      settings: this.settings,
+      summaries
+    });
+  }
+
+  private getCachedReadingTimes(view: EditorView): ReadingTimeSummaries | null {
+    const cached = this.readingTimeCache.get(view);
+    return cached?.doc === view.state.doc && cached.settings === this.settings
+      ? cached.summaries
+      : null;
+  }
+
+  private scheduleTitleBadgeRefresh(markdownView: MarkdownView) {
+    if (this.titleBadgeUpdateTimer !== null) {
+      window.clearTimeout(this.titleBadgeUpdateTimer);
+    }
+
+    this.titleBadgeUpdateTimer = window.setTimeout(() => {
+      this.titleBadgeUpdateTimer = null;
+      this.refreshTitleBadge(markdownView);
+    }, TITLE_BADGE_UPDATE_DELAY_MS);
   }
 
   private refreshTitleBadge(markdownView: MarkdownView) {
@@ -370,7 +421,7 @@ export default class SectionMeterPlugin extends Plugin {
         group.remove();
       });
 
-    if (!this.settings.showInlineTitleStats) {
+    if (!this.settings.enabled || !this.settings.showInlineTitleStats) {
       return;
     }
 
@@ -380,7 +431,9 @@ export default class SectionMeterPlugin extends Plugin {
       return;
     }
 
-    const summary = summarizeNoteReadingTime(markdownView.getViewData(), this.settings);
+    const editorView = getEditorView(markdownView);
+    const summary = (editorView ? this.getCachedReadingTimes(editorView)?.note : null)
+      ?? summarizeNoteReadingTime(markdownView.getViewData(), this.settings);
     const badge = createReadingTimeBadge(
       summary.label,
       summary.wordCount,
@@ -400,6 +453,19 @@ export default class SectionMeterPlugin extends Plugin {
     if (!this.statusBarItem) {
       return;
     }
+
+    const hasVisibleStatus = Boolean(
+      (this.settings.showStatusBarNoteStats && status?.note)
+      || (this.settings.showStatusBarSelectionStats && status?.selection)
+      || status?.sectionTarget
+    );
+    const renderKey = hasVisibleStatus
+      ? createStatusBarRenderKey(status, this.settings)
+      : "hidden";
+    if (renderKey === this.lastStatusBarRenderKey) {
+      return;
+    }
+    this.lastStatusBarRenderKey = renderKey;
 
     this.statusBarItem.empty();
     const partLabels: string[] = [];
@@ -451,6 +517,7 @@ export default class SectionMeterPlugin extends Plugin {
     this.statusBarItem.removeAttribute("aria-label");
     this.statusBarItem.removeAttribute("title");
     this.statusBarItem.classList.add("section-meter-status-bar-hidden");
+    this.lastStatusBarRenderKey = "hidden";
   }
 }
 
@@ -624,14 +691,21 @@ function createSectionMeterExtension(
   updateStatusBar: (status: StatusBarStats | null) => void,
   updateMobileMeterPosition: (
     position: SectionMeterSettings["mobileMeterPosition"]
-  ) => void
+  ) => void,
+  cacheReadingTimes: (view: EditorView, summaries: ReadingTimeSummaries) => void
 ): Extension {
+  if (!getSettings().enabled) {
+    return [];
+  }
+
   class SectionMeterViewPlugin implements PluginValue {
     decorations: DecorationSet;
     private summaries: SectionMeterSummary[];
     private noteSummary: ReturnType<typeof summarizeNoteReadingTime>;
     private selectionBadgeUpdateTimer: number | null = null;
     private selectionBadgeRefreshQueued = false;
+    private documentStatsUpdateTimer: number | null = null;
+    private documentStatsRefreshQueued = false;
     private applySelectionBadgeOverride = true;
     private mobileMeterEl: HTMLElement | null = null;
     private mobileMeterScrollDom: HTMLElement | null = null;
@@ -640,8 +714,10 @@ function createSectionMeterExtension(
 
     constructor(view: EditorView) {
       const markdown = view.state.doc.toString();
-      this.summaries = summarizeSectionReadingTimes(markdown, getSettings());
-      this.noteSummary = summarizeNoteReadingTime(markdown, getSettings());
+      const summaries = summarizeReadingTimes(markdown, getSettings());
+      this.summaries = summaries.sections;
+      this.noteSummary = summaries.note;
+      cacheReadingTimes(view, summaries);
       this.decorations = this.buildDecorations(view);
 
       if (getSettings().mobileStickySectionMeter) {
@@ -659,12 +735,21 @@ function createSectionMeterExtension(
 
     update(update: ViewUpdate) {
       if (update.docChanged) {
-        const markdown = update.state.doc.toString();
-        this.summaries = summarizeSectionReadingTimes(markdown, getSettings());
-        this.noteSummary = summarizeNoteReadingTime(markdown, getSettings());
+        this.decorations = this.decorations.map(update.changes);
+        this.queueDocumentStatsRefresh(update.view);
       }
 
-      let shouldRebuildDecorations = update.docChanged || update.viewportChanged;
+      let shouldRebuildDecorations = update.viewportChanged
+        && this.documentStatsUpdateTimer === null;
+      if (this.documentStatsRefreshQueued) {
+        this.documentStatsRefreshQueued = false;
+        const markdown = update.state.doc.toString();
+        const summaries = summarizeReadingTimes(markdown, getSettings());
+        this.summaries = summaries.sections;
+        this.noteSummary = summaries.note;
+        cacheReadingTimes(update.view, summaries);
+        shouldRebuildDecorations = true;
+      }
       if (this.selectionBadgeRefreshQueued) {
         this.selectionBadgeRefreshQueued = false;
         this.applySelectionBadgeOverride = true;
@@ -673,15 +758,21 @@ function createSectionMeterExtension(
 
       if (update.selectionSet || update.focusChanged) {
         this.applySelectionBadgeOverride = false;
-        this.queueSelectionBadgeRefresh(update.view);
-        shouldRebuildDecorations = true;
+        if (update.view.state.selection.ranges.some((range) => !range.empty)) {
+          this.queueSelectionBadgeRefresh(update.view);
+        } else {
+          this.cancelSelectionBadgeRefresh();
+        }
+        shouldRebuildDecorations ||= !update.docChanged
+          && this.documentStatsUpdateTimer === null;
       }
 
       if (shouldRebuildDecorations) {
         this.decorations = this.buildDecorations(update.view);
       }
 
-      if (update.docChanged || update.viewportChanged) {
+      if ((!update.docChanged && this.documentStatsUpdateTimer === null)
+        || update.viewportChanged) {
         this.scheduleMobileMeterUpdate(update.view);
       }
     }
@@ -689,6 +780,9 @@ function createSectionMeterExtension(
     destroy() {
       if (this.selectionBadgeUpdateTimer !== null) {
         window.clearTimeout(this.selectionBadgeUpdateTimer);
+      }
+      if (this.documentStatsUpdateTimer !== null) {
+        window.clearTimeout(this.documentStatsUpdateTimer);
       }
 
       if (this.mobileMeterScrollDom && this.mobileMeterScrollHandler) {
@@ -700,6 +794,18 @@ function createSectionMeterExtension(
       this.mobileMeterScrollHandler = null;
 
       this.summaries = [];
+    }
+
+    private queueDocumentStatsRefresh(view: EditorView) {
+      if (this.documentStatsUpdateTimer !== null) {
+        window.clearTimeout(this.documentStatsUpdateTimer);
+      }
+
+      this.documentStatsUpdateTimer = window.setTimeout(() => {
+        this.documentStatsUpdateTimer = null;
+        this.documentStatsRefreshQueued = true;
+        view.dispatch({});
+      }, DOCUMENT_STATS_UPDATE_DELAY_MS);
     }
 
     private queueSelectionBadgeRefresh(view: EditorView) {
@@ -714,10 +820,23 @@ function createSectionMeterExtension(
       }, SELECTION_BADGE_UPDATE_DELAY_MS);
     }
 
+    private cancelSelectionBadgeRefresh() {
+      if (this.selectionBadgeUpdateTimer !== null) {
+        window.clearTimeout(this.selectionBadgeUpdateTimer);
+        this.selectionBadgeUpdateTimer = null;
+      }
+      this.selectionBadgeRefreshQueued = false;
+    }
+
     private buildDecorations(view: EditorView): DecorationSet {
       const builder = new RangeSetBuilder<Decoration>();
       const settings = getSettings();
-      const statusBarStats = getStatusBarStats(view, settings, this.summaries);
+      const statusBarStats = getStatusBarStats(
+        view,
+        settings,
+        this.summaries,
+        this.noteSummary
+      );
       const selectionOverride = this.applySelectionBadgeOverride && statusBarStats.selection
         ? getHeadingSelectionOverride(view, this.summaries, statusBarStats.selection)
         : null;
@@ -727,11 +846,7 @@ function createSectionMeterExtension(
         return builder.finish();
       }
 
-      for (const summary of this.summaries) {
-        if (!isPositionVisible(summary.headingEnd, view.visibleRanges)) {
-          continue;
-        }
-
+      for (const summary of getVisibleSummaries(this.summaries, view.visibleRanges)) {
         const isSelectionTarget = selectionOverride?.headingFrom === summary.from;
         if (!isSelectionTarget && !summary.target && !shouldShowSummary(summary, settings)) {
           continue;
@@ -1870,19 +1985,61 @@ type StatusBarStats = {
   sectionTarget: WritingTargetProgress | null;
 };
 
-function isPositionVisible(
-  position: number,
+function getVisibleSummaries(
+  summaries: SectionMeterSummary[],
   ranges: readonly { from: number; to: number }[]
-): boolean {
-  return ranges.some((range) => position >= range.from && position <= range.to);
+): SectionMeterSummary[] {
+  const visibleSummaries: SectionMeterSummary[] = [];
+
+  for (const range of ranges) {
+    let low = 0;
+    let high = summaries.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (summaries[middle].headingEnd < range.from) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+
+    for (let index = low;
+      index < summaries.length && summaries[index].headingEnd <= range.to;
+      index++) {
+      visibleSummaries.push(summaries[index]);
+    }
+  }
+
+  return visibleSummaries;
+}
+
+function createStatusBarRenderKey(
+  status: StatusBarStats | null,
+  settings: SectionMeterSettings
+): string {
+  return JSON.stringify([
+    settings.showStatusBarNoteStats,
+    settings.showStatusBarSelectionStats,
+    settings.showStatusBarWords,
+    settings.showStatusBarTiming,
+    settings.showStatusBarCharacters,
+    settings.wordsPerMinute,
+    settings.compactMode,
+    settings.compactWordsLabel,
+    settings.compactCharactersLabel,
+    settings.compactMinutesLabel,
+    settings.showTimeAsMinutesOnly,
+    settings.labelSeparator,
+    status
+  ]);
 }
 
 function getStatusBarStats(
   view: EditorView,
   settings: SectionMeterSettings,
-  summaries: SectionMeterSummary[]
+  summaries: SectionMeterSummary[],
+  note: ReturnType<typeof summarizeNoteReadingTime>
 ): StatusBarStats {
-  const note = summarizeNoteReadingTime(view.state.doc.toString(), settings);
   const sectionTarget = getSectionTargetAtSelection(view, summaries);
   const selectedRanges = view.state.selection.ranges.filter((range) => !range.empty);
   if (selectedRanges.length === 0) {
@@ -1993,6 +2150,7 @@ function normalizeSettings(settings: StoredSettings): SectionMeterSettings {
   const statusBarDisplaySettings = normalizeStatusBarDisplaySettings(settings);
 
   return {
+    enabled: normalizeBoolean(settings.enabled, DEFAULT_SETTINGS.enabled),
     wordsPerMinute: normalizeWordsPerMinute(settings.wordsPerMinute),
     ...displaySettings,
     compactMode: normalizeBoolean(settings.compactMode, DEFAULT_SETTINGS.compactMode),

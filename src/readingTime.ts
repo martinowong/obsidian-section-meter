@@ -9,6 +9,7 @@ export type LegacyLabelStyle =
   | "words-characters-and-time";
 
 export interface SectionMeterSettings {
+  enabled: boolean;
   wordsPerMinute: number;
   showWords: boolean;
   showTiming: boolean;
@@ -52,6 +53,19 @@ export interface SectionMeterSummary extends HeadingSection {
   seconds: number;
   label: string;
   target: WritingTargetProgress | null;
+}
+
+export interface NoteMeterSummary {
+  wordCount: number;
+  characterCount: number;
+  seconds: number;
+  label: string;
+  target: WritingTargetProgress | null;
+}
+
+export interface ReadingTimeSummaries {
+  sections: SectionMeterSummary[];
+  note: NoteMeterSummary;
 }
 
 export type WritingTargetMetric = "words" | "characters" | "reading-time";
@@ -187,13 +201,39 @@ export function summarizeSectionReadingTimes(
   const targets = parseWritingTargetLines(markdown);
   const sections = parseHeadingSections(markdown);
 
+  return summarizeParsedSections(markdown, settings, sections, targets);
+}
+
+export function summarizeReadingTimes(
+  markdown: string,
+  settings: SectionMeterSettings
+): ReadingTimeSummaries {
+  const targets = parseWritingTargetLines(markdown);
+  const sections = parseHeadingSections(markdown);
+
+  return {
+    sections: summarizeParsedSections(markdown, settings, sections, targets),
+    note: summarizeParsedNote(markdown, settings, sections, targets)
+  };
+}
+
+function summarizeParsedSections(
+  markdown: string,
+  settings: SectionMeterSettings,
+  sections: HeadingSection[],
+  targets: WritingTargetLine[]
+): SectionMeterSummary[] {
+  const targetsBySectionFrom = mapTargetsToSections(sections, targets);
+
   return sections.map((section) => {
     const content = markdown.slice(section.contentFrom, section.to);
     const readableText = stripMarkdownToReadableText(content);
-    const wordCount = countWords(readableText);
-    const characterCount = countCharacters(readableText, settings.countCharactersWithSpaces);
+    const { wordCount, characterCount } = countReadableStats(
+      readableText,
+      settings.countCharactersWithSpaces
+    );
     const seconds = estimateSeconds(wordCount, settings.wordsPerMinute);
-    const target = findSectionTarget(section, sections, targets);
+    const target = targetsBySectionFrom.get(section.from) ?? null;
 
     return {
       ...section,
@@ -211,29 +251,38 @@ export function summarizeSectionReadingTimes(
 export function summarizeNoteReadingTime(
   markdown: string,
   settings: SectionMeterSettings
-): {
-  wordCount: number;
-  characterCount: number;
-  seconds: number;
-  label: string;
-  target: WritingTargetProgress | null;
-} {
+): NoteMeterSummary {
+  const targets = parseWritingTargetLines(markdown);
+  const sections = parseHeadingSections(markdown);
+
+  return summarizeParsedNote(markdown, settings, sections, targets);
+}
+
+function summarizeParsedNote(
+  markdown: string,
+  settings: SectionMeterSettings,
+  sections: HeadingSection[],
+  targets: WritingTargetLine[]
+): NoteMeterSummary {
   const readableText = stripMarkdownToReadableText(markdown);
-  const wordCount = countWords(readableText);
-  const characterCount = countCharacters(readableText, settings.countCharactersWithSpaces);
-  const noteTarget = findNoteTarget(markdown, parseHeadingSections(markdown));
+  const { wordCount, characterCount } = countReadableStats(
+    readableText,
+    settings.countCharactersWithSpaces
+  );
+  const noteTarget = findNoteTargetLine(markdown, sections, targets);
+  const seconds = estimateSeconds(wordCount, settings.wordsPerMinute);
 
   return {
     wordCount,
     characterCount,
-    seconds: estimateSeconds(wordCount, settings.wordsPerMinute),
+    seconds,
     label: formatReadingTime(wordCount, characterCount, settings),
     target: noteTarget
       ? createWritingTargetProgress(
         noteTarget,
         wordCount,
         characterCount,
-        estimateSeconds(wordCount, settings.wordsPerMinute),
+        seconds,
         settings
       )
       : null
@@ -289,11 +338,11 @@ export function shouldShowSummary(
 }
 
 export function countReadableWords(markdown: string): number {
-  return countWords(stripMarkdownToReadableText(markdown));
+  return countReadableStats(stripMarkdownToReadableText(markdown), true).wordCount;
 }
 
 export function countReadableCharacters(markdown: string, includeSpaces = true): number {
-  return countCharacters(stripMarkdownToReadableText(markdown), includeSpaces);
+  return countReadableStats(stripMarkdownToReadableText(markdown), includeSpaces).characterCount;
 }
 
 export function parseWritingTargetLine(line: string): WritingTarget | null {
@@ -393,6 +442,85 @@ export function createWritingTargetTextEdit(
 function countWords(readable: string): number {
   const words = readable.match(/[\p{L}\p{N}]+(?:['-][\p{L}\p{N}]+)*/gu);
   return words?.length ?? 0;
+}
+
+function countReadableStats(
+  readable: string,
+  includeSpaces: boolean
+): { wordCount: number; characterCount: number } {
+  let wordCount = 0;
+  let characterCount = 0;
+  let inWord = false;
+  let atLineStart = true;
+  let pendingHorizontalSpaces = 0;
+  let pendingLineBreak = false;
+
+  for (let index = 0; index < readable.length; index++) {
+    const code = readable.charCodeAt(index);
+    if (!isAsciiStatsCode(code)) {
+      return {
+        wordCount: countWords(readable),
+        characterCount: countCharacters(readable, includeSpaces)
+      };
+    }
+
+    const isWordCharacter = isAsciiAlphaNumericCode(code);
+
+    if (isWordCharacter) {
+      if (!inWord) {
+        wordCount++;
+      }
+      inWord = true;
+    } else if ((code === 39 || code === 45)
+      && inWord
+      && isAsciiAlphaNumericCode(readable.charCodeAt(index + 1))) {
+      inWord = true;
+    } else {
+      inWord = false;
+    }
+
+    if (code === 10 || code === 13) {
+      if (code === 13 && readable.charCodeAt(index + 1) === 10) {
+        index++;
+      }
+      pendingHorizontalSpaces = 0;
+      pendingLineBreak = true;
+      atLineStart = true;
+      continue;
+    }
+
+    if (code === 32 || code === 9) {
+      if (!atLineStart) {
+        pendingHorizontalSpaces++;
+      }
+      continue;
+    }
+
+    if (includeSpaces) {
+      if (pendingLineBreak) {
+        characterCount++;
+      } else {
+        characterCount += pendingHorizontalSpaces;
+      }
+    }
+
+    pendingHorizontalSpaces = 0;
+    pendingLineBreak = false;
+    atLineStart = false;
+    characterCount++;
+  }
+
+  return { wordCount, characterCount };
+}
+
+function isAsciiStatsCode(code: number): boolean {
+  return code === 9 || code === 10 || code === 13 || (code >= 32 && code <= 126);
+}
+
+function isAsciiAlphaNumericCode(code: number): boolean {
+  return (code >= 48 && code <= 57)
+    || (code >= 65 && code <= 90)
+    || (code >= 97 && code <= 122);
 }
 
 function countCharacters(readable: string, includeSpaces: boolean): number {
@@ -509,6 +637,13 @@ function normalizeCompactLabel(value: string, fallback: string): string {
 }
 
 function stripMarkdownToReadableText(markdown: string): string {
+  if (canUsePlainTextFastPath(markdown)) {
+    return markdown
+      .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+      .replace(/\s+#+\s*$/gm, "")
+      .replace(/#/g, "");
+  }
+
   let text = removeFrontmatter(markdown);
   text = removeFencedCodeBlocks(text);
   text = removeWritingTargetLines(text);
@@ -533,6 +668,18 @@ function stripMarkdownToReadableText(markdown: string): string {
   text = text.replace(/[=#{}[\]]/g, "");
   text = text.replace(/<\/?[^>]+>/g, "");
   return text;
+}
+
+function canUsePlainTextFastPath(markdown: string): boolean {
+  const firstLineEnd = markdown.indexOf("\n");
+  const firstLine = markdown.slice(0, firstLineEnd === -1 ? markdown.length : firstLineEnd);
+  if (firstLine.trim() === "---") {
+    return false;
+  }
+
+  return !/[`*_~[\]!<>{}|=]/.test(markdown)
+    && !/^ {0,3}(?:Target:|>\s?|[-+]\s+|\d+[.)]\s+)/im.test(markdown)
+    && !/^ {0,3}-{3,}[ \t]*$/m.test(markdown);
 }
 
 function parseWritingTargetLines(markdown: string): WritingTargetLine[] {
@@ -583,10 +730,6 @@ function parseWritingTargetLines(markdown: string): WritingTargetLine[] {
   return targets;
 }
 
-function findNoteTarget(markdown: string, sections: HeadingSection[]): WritingTarget | null {
-  return findNoteTargetLine(markdown, sections, parseWritingTargetLines(markdown));
-}
-
 function findNoteTargetLine(
   markdown: string,
   sections: HeadingSection[],
@@ -594,6 +737,31 @@ function findNoteTargetLine(
 ): WritingTargetLine | null {
   const firstHeadingFrom = sections[0]?.from ?? markdown.length;
   return targets.find((target) => target.from < firstHeadingFrom) ?? null;
+}
+
+function mapTargetsToSections(
+  sections: HeadingSection[],
+  targets: WritingTargetLine[]
+): Map<number, WritingTargetLine> {
+  const targetsBySectionFrom = new Map<number, WritingTargetLine>();
+  let sectionIndex = -1;
+
+  for (const target of targets) {
+    while (sectionIndex + 1 < sections.length
+      && sections[sectionIndex + 1].from < target.from) {
+      sectionIndex++;
+    }
+
+    const section = sections[sectionIndex];
+    if (section
+      && target.from >= section.contentFrom
+      && target.from < section.to
+      && !targetsBySectionFrom.has(section.from)) {
+      targetsBySectionFrom.set(section.from, target);
+    }
+  }
+
+  return targetsBySectionFrom;
 }
 
 function findSectionTarget(

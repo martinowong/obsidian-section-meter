@@ -14,6 +14,7 @@ Section Writing Stats places a small, continuously updated badge beside the note
 - Track words, characters, and estimated reading time.
 - Add writing targets (words, characters, or reading time) for the whole note or an individual section.
 - Customize which statistics and labels are displayed.
+- Pause or resume all plugin counting and UI with **Toggle plugin on/off** in the command palette.
 
 ## How sections are counted
 

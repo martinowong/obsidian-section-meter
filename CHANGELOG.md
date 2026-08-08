@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0
+
+- Up to 4× faster on long notes.
+- Added **Toggle plugin on/off**, which pauses all plugin counting and UI while preserving your display settings.
+- Removed the older **Toggle all stats** command.
+- Reduced repeated work when updating heading badges, title statistics, selection statistics, mobile targets, and the status bar.
+- Improved handling of visible headings so scrolling through documents with many sections performs less work.
+
 ## 1.2.2
 
 - Added Command Palette toggles for all stats, heading/title stats, and status-bar stats.

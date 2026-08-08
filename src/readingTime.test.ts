@@ -12,10 +12,12 @@ import {
   parseHeadingSections,
   parseWritingTargetLine,
   summarizeNoteReadingTime,
+  summarizeReadingTimes,
   summarizeSectionReadingTimes
 } from "./readingTime";
 
 const settings = {
+  enabled: true,
   wordsPerMinute: 200,
   showWords: true,
   showTiming: true,
@@ -83,6 +85,46 @@ describe("parseHeadingSections", () => {
 });
 
 describe("countReadableWords", () => {
+  it("counts prose-heavy notes through the plain-text path", () => {
+    const markdown = [
+      "# Plain heading ###",
+      "Thirty thousand words can still be mostly plain prose.",
+      "A literal hash # remains syntax for compatibility."
+    ].join("\n");
+
+    expect(countReadableWords(markdown)).toBe(18);
+    expect(countReadableCharacters(markdown)).toBe(118);
+  });
+
+  it("keeps apostrophes and hyphens inside ASCII words", () => {
+    expect(countReadableWords("It's well-known -- really.")).toBe(3);
+  });
+
+  it("matches the previous counters across generated ASCII prose", () => {
+    let seed = 0x5ec710;
+    const random = () => {
+      seed = ((seed * 1664525) + 1013904223) >>> 0;
+      return seed / 2 ** 32;
+    };
+    const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+      + "     \t\n\r.,;:!?'/()-";
+
+    for (let sample = 0; sample < 2000; sample++) {
+      let prose = "";
+      const length = Math.floor(random() * 200);
+      for (let index = 0; index < length; index++) {
+        prose += alphabet[Math.floor(random() * alphabet.length)];
+      }
+      prose = `A${prose.replace(/\r\n|\r|\n/g, (lineBreak) => `${lineBreak}A`)}`;
+
+      expect(countReadableWords(prose)).toBe(referenceWordCount(prose));
+      expect(countReadableCharacters(prose, true))
+        .toBe(referenceCharacterCount(prose, true));
+      expect(countReadableCharacters(prose, false))
+        .toBe(referenceCharacterCount(prose, false));
+    }
+  });
+
   it("counts prose, lists, links, blockquotes, and table cell text", () => {
     const markdown = [
       "A paragraph with [linked words](https://example.com).",
@@ -177,6 +219,27 @@ describe("countReadableWords", () => {
     expect(countReadableCharacters(markdown)).toBe(31);
   });
 });
+
+function referenceWordCount(readable: string): number {
+  return readable.match(/[\p{L}\p{N}]+(?:['-][\p{L}\p{N}]+)*/gu)?.length ?? 0;
+}
+
+function referenceCharacterCount(readable: string, includeSpaces: boolean): number {
+  const lineTrimmed = readable.replace(/^[^\S\r\n]+|[^\S\r\n]+$/gm, "");
+  const hasContent = /\S/.test(lineTrimmed);
+  const keepLeadingBreak = hasContent && /^(?:\r\n|\r|\n)/.test(lineTrimmed);
+  let normalized = lineTrimmed
+    .replace(/\t/g, " ")
+    .replace(/(?:\r\n|\r|\n)+/g, " ");
+
+  if (!keepLeadingBreak) {
+    normalized = normalized.replace(/^ +/, "");
+  }
+
+  normalized = normalized.replace(/ +$/, "");
+  const countable = includeSpaces ? normalized : normalized.replace(/\s/g, "");
+  return Array.from(countable).length;
+}
 
 describe("formatReadingTime", () => {
   it("rounds nonzero counts up to at least one second", () => {
@@ -345,6 +408,21 @@ describe("summarizeNoteReadingTime", () => {
 
     expect(summary.characterCount).toBe(22);
   });
+
+  it("can summarize note and section stats in one analysis", () => {
+    const markdown = [
+      "Target: 10 words",
+      "# Parent",
+      "Target: 4 words",
+      "parent words",
+      "## Child",
+      "child words"
+    ].join("\n");
+    const summaries = summarizeReadingTimes(markdown, settings);
+
+    expect(summaries.note).toEqual(summarizeNoteReadingTime(markdown, settings));
+    expect(summaries.sections).toEqual(summarizeSectionReadingTimes(markdown, settings));
+  });
 });
 
 describe("parseWritingTargetLine", () => {
@@ -426,6 +504,20 @@ describe("writing target progress", () => {
       currentValue: 5,
       targetValue: 10,
       label: "5 / 10 c"
+    });
+  });
+
+  it("uses the first target line owned by a section", () => {
+    const summary = summarizeSectionReadingTimes([
+      "# Draft",
+      "Target: 10 words",
+      "Target: 20 words",
+      "draft words"
+    ].join("\n"), settings)[0];
+
+    expect(summary.target).toMatchObject({
+      metric: "words",
+      targetValue: 10
     });
   });
 

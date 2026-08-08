@@ -6,5 +6,6 @@
   "description": "Shows live word counts, character counts, reading time, and writing-target progress beside headings, note titles, and in the status bar.",
   "author": "Martino Wong",
   "authorUrl": "https://github.com/martinowong",
+  "fundingUrl": "https://oradecima.com/#/portal/support",
   "isDesktopOnly": false
 }

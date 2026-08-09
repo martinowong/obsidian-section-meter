@@ -4,9 +4,9 @@ Live word counts, character counts, reading time, and writing-target progress fo
 
 Section Writing Stats places a small, continuously updated badge beside the note title and each Markdown heading. It helps you check the length of a chapter, scene, article section, or complete note without interrupting your writing.
 
-[Install from Obsidian Community Plugins](https://community.obsidian.md/plugins/section-meter) · [View the latest release](https://github.com/martinowong/obsidian-section-meter/releases/latest)
+[Install from Obsidian Community Plugins](https://community.obsidian.md/plugins/section-meter) · [Visit the website](https://martinowong.github.io/section-writing-stats-site/) · [View the latest release](https://github.com/martinowong/obsidian-section-meter/releases/latest)
 
-![Section Writing Stats showing live word counts, character counts, reading time, and writing-target progress beside headings in Obsidian](docs/images/section-writing-stats-editor.png)
+![Section Writing Stats showing live word counts, character counts, reading time, and writing-target progress beside headings in Obsidian](https://martinowong.github.io/section-writing-stats-site/images/section-writing-stats-obsidian.png)
 
 ## At a glance
 

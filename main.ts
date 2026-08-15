@@ -72,6 +72,8 @@ const DEFAULT_SETTINGS: SectionMeterSettings = {
   showStatusBarCharacters: false,
   targetOverageWarningPercent: 125,
   targetProgressLabelStyle: "count",
+  targetPresets: "250 words, 500 words, 1000 words, 10m",
+  notifyOnTargetReached: false,
   mobileStickySectionMeter: false,
   mobileMeterPosition: "bottom",
   previewSticky: true
@@ -98,6 +100,7 @@ export default class SectionMeterPlugin extends Plugin {
   private statusBarItem: HTMLElement | null = null;
   private lastStatusBarRenderKey = "hidden";
   private titleBadgeUpdateTimer: number | null = null;
+  private targetCompletionStates = new Map<string, boolean>();
   private readingTimeCache = new WeakMap<EditorView, {
     doc: Text;
     settings: SectionMeterSettings;
@@ -115,12 +118,20 @@ export default class SectionMeterPlugin extends Plugin {
         () => this.settings,
         (status) => this.updateStatusBar(status),
         (position) => this.updateMobileMeterPosition(position),
+        (scope) => this.openMobileTargetEditor(scope),
         (view, summaries) => this.cacheReadingTimes(view, summaries)
       ))
     );
     this.addSettingTab(new SectionMeterSettingTab(this.app, this));
     this.registerWritingTargetCommands();
     this.registerStatsDisplayCommands();
+    this.registerEvent(
+      this.app.workspace.on("editor-change", (editor, info) => {
+        if (this.settings.enabled && this.settings.notifyOnTargetReached && info instanceof MarkdownView) {
+          this.notifyReachedTargets(editor, info);
+        }
+      })
+    );
     this.registerEvent(
       this.app.workspace.on("layout-change", () => {
         this.refreshTitleBadges();
@@ -173,6 +184,15 @@ export default class SectionMeterPlugin extends Plugin {
 
     this.settings.mobileMeterPosition = position;
     void this.saveSettings();
+  }
+
+  private openMobileTargetEditor(scope: WritingTargetScope): void {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view) {
+      return;
+    }
+
+    this.openWritingTargetModal(view.editor, scope);
   }
 
   private registerWritingTargetCommands() {
@@ -266,6 +286,7 @@ export default class SectionMeterPlugin extends Plugin {
       this.app,
       scope,
       context.existingTarget,
+      getWritingTargetPresets(this.settings.targetPresets),
       (target) => {
         const currentContext = getWritingTargetCommandContext(editor, scope, this.settings);
         if (!currentContext) {
@@ -291,6 +312,39 @@ export default class SectionMeterPlugin extends Plugin {
         );
       }
     ).open();
+  }
+
+  private notifyReachedTargets(editor: Editor, view: MarkdownView): void {
+    const markdown = editor.getValue();
+    const summaries = summarizeReadingTimes(markdown, this.settings);
+    const filePath = view.file?.path ?? "active-note";
+    const targets = [
+      { key: "note", label: "Whole-note", target: summaries.note.target },
+      ...summaries.sections.map((summary) => ({
+        key: `section:${summary.from}`,
+        label: summary.title,
+        target: summary.target
+      }))
+    ];
+
+    const activeKeys = new Set<string>();
+    for (const { key: targetKey, label, target } of targets) {
+      if (!target) {
+        continue;
+      }
+      const key = `${filePath}:${targetKey}:${target.metric}:${target.targetValue}`;
+      activeKeys.add(key);
+      const wasComplete = this.targetCompletionStates.get(key);
+      if (target.isComplete && wasComplete === false) {
+        new Notice(`${label} target reached — ${formatWritingTargetCountLabel(target)}.`);
+      }
+      this.targetCompletionStates.set(key, target.isComplete);
+    }
+    for (const key of this.targetCompletionStates.keys()) {
+      if (key.startsWith(`${filePath}:`) && !activeKeys.has(key)) {
+        this.targetCompletionStates.delete(key);
+      }
+    }
   }
 
   private removeWritingTarget(editor: Editor, scope: WritingTargetScope) {
@@ -577,6 +631,7 @@ class WritingTargetModal extends Modal {
     app: App,
     private readonly targetScope: WritingTargetScope,
     private readonly existingTarget: WritingTarget | null,
+    private readonly presets: WritingTarget[],
     private readonly onSubmitTarget: (target: WritingTarget) => void
   ) {
     super(app);
@@ -590,6 +645,9 @@ class WritingTargetModal extends Modal {
     const formEl = this.contentEl.createEl("form");
     let metric: WritingTargetMetric = this.existingTarget?.metric ?? "words";
     let amountInput: TextComponent | null = null;
+    let metricDropdown: {
+      setValue(value: string): unknown;
+    } | null = null;
 
     const updateAmountInput = () => {
       if (amountInput === null) {
@@ -602,15 +660,18 @@ class WritingTargetModal extends Modal {
 
     new Setting(formEl)
       .setName("Measure")
-      .addDropdown((dropdown) => dropdown
-        .addOption("words", "Words")
-        .addOption("characters", "Characters")
-        .addOption("reading-time", "Reading time")
-        .setValue(metric)
-        .onChange((value) => {
-          metric = value as WritingTargetMetric;
-          updateAmountInput();
-        }));
+      .addDropdown((dropdown) => {
+        metricDropdown = dropdown;
+        return dropdown
+          .addOption("words", "Words")
+          .addOption("characters", "Characters")
+          .addOption("reading-time", "Reading time")
+          .setValue(metric)
+          .onChange((value) => {
+            metric = value as WritingTargetMetric;
+            updateAmountInput();
+          });
+      });
 
     new Setting(formEl)
       .setName("Target")
@@ -620,6 +681,25 @@ class WritingTargetModal extends Modal {
         text.setValue(formatWritingTargetInputValue(this.existingTarget));
         updateAmountInput();
       });
+
+    if (this.presets.length > 0) {
+      const presetEl = formEl.createDiv({ cls: "section-meter-target-presets" });
+      presetEl.createEl("div", { text: "Quick targets", cls: "setting-item-name" });
+      const buttonsEl = presetEl.createDiv({ cls: "section-meter-target-preset-buttons" });
+      for (const preset of this.presets) {
+        const button = buttonsEl.createEl("button", {
+          text: formatWritingTargetPreset(preset),
+          type: "button",
+          cls: "section-meter-target-preset"
+        });
+        button.addEventListener("click", () => {
+          metric = preset.metric;
+          metricDropdown?.setValue(metric);
+          amountInput?.setValue(formatWritingTargetInputValue(preset));
+          updateAmountInput();
+        });
+      }
+    }
 
     new Setting(formEl)
       .addButton((button) => {
@@ -686,12 +766,27 @@ function formatWritingTargetInputValue(target: WritingTarget | null): string {
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
+function getWritingTargetPresets(rawPresets: string): WritingTarget[] {
+  return rawPresets
+    .split(",")
+    .map((preset) => parseWritingTargetLine(`Target: ${preset.trim()}`))
+    .filter((preset): preset is WritingTarget => preset !== null);
+}
+
+function formatWritingTargetPreset(target: WritingTarget): string {
+  if (target.metric === "reading-time") {
+    return formatWritingTargetInputValue(target);
+  }
+  return `${target.targetValue} ${target.metric}`;
+}
+
 function createSectionMeterExtension(
   getSettings: () => SectionMeterSettings,
   updateStatusBar: (status: StatusBarStats | null) => void,
   updateMobileMeterPosition: (
     position: SectionMeterSettings["mobileMeterPosition"]
   ) => void,
+  openMobileTargetEditor: (scope: WritingTargetScope) => void,
   cacheReadingTimes: (view: EditorView, summaries: ReadingTimeSummaries) => void
 ): Extension {
   if (!getSettings().enabled) {
@@ -723,7 +818,8 @@ function createSectionMeterExtension(
       if (getSettings().mobileStickySectionMeter) {
         this.mobileMeterEl = createMobileSectionMeterEl(
           getSettings().mobileMeterPosition,
-          updateMobileMeterPosition
+          updateMobileMeterPosition,
+          openMobileTargetEditor
         );
         view.dom.appendChild(this.mobileMeterEl);
         this.mobileMeterScrollHandler = () => this.scheduleMobileMeterUpdate(view);
@@ -735,7 +831,14 @@ function createSectionMeterExtension(
 
     update(update: ViewUpdate) {
       if (update.docChanged) {
-        this.decorations = this.decorations.map(update.changes);
+        // A heading badge belongs to a parsed heading, not merely to a document
+        // position. Mapping it through a structural heading edit can briefly
+        // place an old badge in ordinary text when a heading is deleted or
+        // recreated (especially on mobile). Ordinary prose edits can keep their
+        // mapped badges while fresh statistics are prepared.
+        this.decorations = documentChangesMayAffectHeadings(update, this.summaries)
+          ? Decoration.none
+          : this.decorations.map(update.changes);
         this.queueDocumentStatsRefresh(update.view);
       }
 
@@ -902,7 +1005,6 @@ function createSectionMeterExtension(
         this.summaries,
         position
       );
-      const summary = sectionSummary ?? this.noteSummary;
       const target = sectionSummary?.target ?? this.noteSummary.target;
       if (!target) {
         this.mobileMeterEl.classList.add("section-meter-mobile-current-section-hidden");
@@ -910,13 +1012,43 @@ function createSectionMeterExtension(
       }
 
       this.mobileMeterEl.classList.remove("section-meter-mobile-current-section-hidden");
-      renderMobileSectionMeter(this.mobileMeterEl, target, summary, getSettings());
+      renderMobileSectionMeter(
+        this.mobileMeterEl,
+        target,
+        sectionSummary ? "section" : "note"
+      );
     }
   }
 
   return ViewPlugin.fromClass(SectionMeterViewPlugin, {
     decorations: (plugin) => plugin.decorations
   });
+}
+
+function documentChangesMayAffectHeadings(
+  update: ViewUpdate,
+  summaries: SectionMeterSummary[]
+): boolean {
+  let affectsHeadings = false;
+
+  update.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+    if (affectsHeadings) {
+      return;
+    }
+
+    const removedText = update.startState.doc.sliceString(fromA, toA);
+    const insertedText = inserted.toString();
+    if (removedText.includes("\n") || insertedText.includes("\n") || insertedText.includes("#")) {
+      affectsHeadings = true;
+      return;
+    }
+
+    affectsHeadings = summaries.some((summary) => (
+      fromA <= summary.headingEnd && toA >= summary.from
+    ));
+  });
+
+  return affectsHeadings;
 }
 
 function getPositionAtVisibleViewportTop(view: EditorView): number {
@@ -927,7 +1059,8 @@ function getPositionAtVisibleViewportTop(view: EditorView): number {
 
 function createMobileSectionMeterEl(
   position: SectionMeterSettings["mobileMeterPosition"],
-  updatePosition: (position: SectionMeterSettings["mobileMeterPosition"]) => void
+  updatePosition: (position: SectionMeterSettings["mobileMeterPosition"]) => void,
+  openTargetEditor: (scope: WritingTargetScope) => void
 ): HTMLElement {
   activeDocument
     .querySelectorAll(".section-meter-mobile-current-section")
@@ -943,52 +1076,43 @@ function createMobileSectionMeterEl(
     "Current section statistics and writing target. Drag vertically to move the meter."
   );
   meterEl.setAttribute("aria-live", "off");
-  addMobileMeterInteractionHandlers(meterEl, updatePosition);
+  addMobileMeterInteractionHandlers(meterEl, updatePosition, openTargetEditor);
   return meterEl;
 }
 
 function renderMobileSectionMeter(
   meterEl: HTMLElement,
   target: WritingTargetProgress,
-  stats: Pick<SectionMeterSummary, "wordCount" | "characterCount" | "seconds">,
-  settings: SectionMeterSettings
+  targetScope: WritingTargetScope
 ): void {
-  const supplementalMetrics = getMobileSupplementalMetrics(target.metric);
-  const currentSupplementalMetric = supplementalMetrics.includes(
-    meterEl.dataset.supplementalMetric as WritingTargetMetric
-  )
-    ? meterEl.dataset.supplementalMetric as WritingTargetMetric
-    : supplementalMetrics[0];
+  const currentEl = createSpan();
+  currentEl.className = "section-meter-mobile-current-section-current";
+  currentEl.textContent = formatMobileTargetCurrentValue(target);
 
-  meterEl.dataset.supplementalMetric = currentSupplementalMetric;
-  meterEl.dataset.supplementalPrimaryMetric = supplementalMetrics[0];
-  meterEl.dataset.supplementalSecondaryMetric = supplementalMetrics[1];
-  meterEl.dataset.supplementalPrimaryLabel = formatMobileSupplementalMetric(
-    supplementalMetrics[0],
-    stats,
-    settings
-  );
-  meterEl.dataset.supplementalSecondaryLabel = formatMobileSupplementalMetric(
-    supplementalMetrics[1],
-    stats,
-    settings
-  );
-
-  const supplementalEl = createEl("button");
-  supplementalEl.type = "button";
-  supplementalEl.className = "section-meter-mobile-current-section-stat";
-  supplementalEl.dataset.mobileMeterAction = "supplemental";
-
-  const targetEl = createEl("button");
-  targetEl.type = "button";
+  const targetEl = createSpan();
   targetEl.className = "section-meter-mobile-current-section-target";
-  targetEl.dataset.mobileMeterAction = "target";
+  targetEl.dataset.mobileMeterAction = "edit-target";
+  targetEl.setAttribute("role", "button");
+  targetEl.tabIndex = 0;
+  targetEl.setAttribute("aria-label", "Edit writing target.");
 
-  const progressEl = createTargetProgressEl(target);
-  progressEl.classList.add("section-meter-mobile-current-section-progress");
+  const progressEl = createSpan();
+  progressEl.className = [
+    "section-meter-mobile-current-section-progress",
+    getTargetProgressStateClass(target)
+  ].join(" ");
+  progressEl.setAttribute("aria-hidden", "true");
+
+  const progressFillEl = createSpan();
+  progressFillEl.className = "section-meter-mobile-current-section-progress-fill";
+  progressFillEl.style.width = `${Math.min(100, Math.max(0, target.percent))}%`;
+  progressEl.appendChild(progressFillEl);
 
   const labelEl = createSpan();
   labelEl.className = "section-meter-mobile-current-section-label";
+  labelEl.dataset.mobileMeterAction = "toggle-target-display";
+  labelEl.setAttribute("role", "button");
+  labelEl.tabIndex = 0;
 
   const percentageEl = createSpan();
   percentageEl.className = "section-meter-mobile-current-section-percentage";
@@ -999,69 +1123,25 @@ function renderMobileSectionMeter(
   countEl.textContent = formatWritingTargetCountLabel(target);
 
   labelEl.append(percentageEl, countEl);
-  targetEl.append(progressEl, labelEl);
-  meterEl.replaceChildren(supplementalEl, targetEl);
+  targetEl.append(currentEl, progressEl);
+  meterEl.replaceChildren(targetEl, labelEl);
+  meterEl.dataset.targetScope = targetScope;
   meterEl.dataset.percentageLabel = percentageEl.textContent;
   meterEl.dataset.countLabel = countEl.textContent;
-  updateMobileSupplementalMetric(meterEl);
   updateMobileTargetAccessibilityLabel(meterEl);
 }
 
-function getMobileSupplementalMetrics(
-  targetMetric: WritingTargetMetric
-): [WritingTargetMetric, WritingTargetMetric] {
-  if (targetMetric === "words") {
-    return ["characters", "reading-time"];
+function formatMobileTargetCurrentValue(target: WritingTargetProgress): string {
+  if (target.metric === "reading-time") {
+    return formatSeconds(target.currentValue);
   }
 
-  if (targetMetric === "characters") {
-    return ["words", "reading-time"];
-  }
-
-  return ["words", "characters"];
-}
-
-function formatMobileSupplementalMetric(
-  metric: WritingTargetMetric,
-  stats: Pick<SectionMeterSummary, "wordCount" | "characterCount" | "seconds">,
-  settings: SectionMeterSettings
-): string {
-  return formatReadingTime(stats.wordCount, stats.characterCount, {
-    ...settings,
-    showWords: metric === "words",
-    showCharacters: metric === "characters",
-    showTiming: metric === "reading-time",
-    compactMode: true,
-    showTimeAsMinutesOnly: false
-  });
-}
-
-function updateMobileSupplementalMetric(meterEl: HTMLElement): void {
-  const supplementalEl = meterEl.querySelector<HTMLElement>(
-    ".section-meter-mobile-current-section-stat"
-  );
-  if (!supplementalEl) {
-    return;
-  }
-
-  const showPrimary = meterEl.dataset.supplementalMetric
-    === meterEl.dataset.supplementalPrimaryMetric;
-  const visibleLabel = showPrimary
-    ? meterEl.dataset.supplementalPrimaryLabel
-    : meterEl.dataset.supplementalSecondaryLabel;
-  const nextLabel = showPrimary
-    ? meterEl.dataset.supplementalSecondaryLabel
-    : meterEl.dataset.supplementalPrimaryLabel;
-  supplementalEl.textContent = visibleLabel ?? "";
-  supplementalEl.setAttribute(
-    "aria-label",
-    `${visibleLabel ?? "Section statistic"}. Tap to show ${nextLabel ?? "the other statistic"}.`
-  );
+  return `${target.currentValue}${target.metric === "words" ? "w" : "c"}`;
 }
 
 function updateMobileTargetAccessibilityLabel(meterEl: HTMLElement): void {
   const targetEl = meterEl.querySelector<HTMLElement>(
-    ".section-meter-mobile-current-section-target"
+    ".section-meter-mobile-current-section-label"
   );
   if (!targetEl) {
     return;
@@ -1081,7 +1161,8 @@ function updateMobileTargetAccessibilityLabel(meterEl: HTMLElement): void {
 
 function addMobileMeterInteractionHandlers(
   meterEl: HTMLElement,
-  updatePosition: (position: SectionMeterSettings["mobileMeterPosition"]) => void
+  updatePosition: (position: SectionMeterSettings["mobileMeterPosition"]) => void,
+  openTargetEditor: (scope: WritingTargetScope) => void
 ): void {
   const dragThreshold = 10;
   let activePointerId: number | null = null;
@@ -1181,6 +1262,24 @@ function addMobileMeterInteractionHandlers(
     event.stopPropagation();
     finishDrag(event, true);
   });
+  const runAction = (target: EventTarget | null): void => {
+    const actionEl = (target as Element | null)?.closest<HTMLElement>(
+      "[data-mobile-meter-action]"
+    );
+    if (actionEl?.dataset.mobileMeterAction === "toggle-target-display") {
+      meterEl.dataset.displayMode = meterEl.dataset.displayMode === "count"
+        ? "percentage"
+        : "count";
+      updateMobileTargetAccessibilityLabel(meterEl);
+      return;
+    }
+
+    if (actionEl?.dataset.mobileMeterAction === "edit-target") {
+      const scope = meterEl.dataset.targetScope === "note" ? "note" : "section";
+      openTargetEditor(scope);
+    }
+  };
+
   meterEl.addEventListener("click", (event) => {
     event.stopPropagation();
     if (suppressNextClick) {
@@ -1190,25 +1289,17 @@ function addMobileMeterInteractionHandlers(
       return;
     }
 
-    const actionEl = (event.target as Element).closest<HTMLElement>(
-      "[data-mobile-meter-action]"
-    );
-    if (actionEl?.dataset.mobileMeterAction === "supplemental") {
-      meterEl.dataset.supplementalMetric = meterEl.dataset.supplementalMetric
-        === meterEl.dataset.supplementalPrimaryMetric
-        ? meterEl.dataset.supplementalSecondaryMetric
-        : meterEl.dataset.supplementalPrimaryMetric;
-      updateMobileSupplementalMetric(meterEl);
+    runAction(event.target);
+  }, true);
+
+  meterEl.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
       return;
     }
-
-    if (actionEl?.dataset.mobileMeterAction === "target") {
-      meterEl.dataset.displayMode = meterEl.dataset.displayMode === "count"
-        ? "percentage"
-        : "count";
-      updateMobileTargetAccessibilityLabel(meterEl);
-    }
-  }, true);
+    event.preventDefault();
+    event.stopPropagation();
+    runAction(event.target);
+  });
 }
 
 class ReadingTimeWidget extends WidgetType {
@@ -1575,15 +1666,35 @@ class SectionMeterSettingTab extends PluginSettingTab {
         ),
         this.createDropdownSetting(
           "Progress label",
-          "Show target progress as a count or as a percentage.",
+          "Show target progress as a count, a percentage, or the amount remaining.",
           () => this.plugin.settings.targetProgressLabelStyle,
           {
             count: "Count (n/N)",
-            percentage: "Percentage"
+            percentage: "Percentage",
+            remaining: "Remaining"
           },
           async (value) => {
             this.plugin.settings.targetProgressLabelStyle =
               normalizeTargetProgressLabelStyle(value);
+            await this.plugin.saveSettings();
+          }
+        ),
+        this.createTextSetting(
+          "Quick target presets",
+          "Comma-separated targets shown in the target dialog. Example: 250 words, 500 words, 10m.",
+          DEFAULT_SETTINGS.targetPresets,
+          () => this.plugin.settings.targetPresets,
+          async (value) => {
+            this.plugin.settings.targetPresets = value;
+            await this.plugin.saveSettings();
+          }
+        ),
+        this.createToggleSetting(
+          "Notify when a target is reached",
+          "Show a one-time notice when writing crosses a whole-note or section target.",
+          () => this.plugin.settings.notifyOnTargetReached,
+          async (value) => {
+            this.plugin.settings.notifyOnTargetReached = value;
             await this.plugin.saveSettings();
           }
         ),
@@ -2209,6 +2320,11 @@ function normalizeSettings(settings: StoredSettings): SectionMeterSettings {
     targetProgressLabelStyle: normalizeTargetProgressLabelStyle(
       settings.targetProgressLabelStyle
     ),
+    targetPresets: normalizeTargetPresets(settings.targetPresets),
+    notifyOnTargetReached: normalizeBoolean(
+      settings.notifyOnTargetReached,
+      DEFAULT_SETTINGS.notifyOnTargetReached
+    ),
     mobileStickySectionMeter: normalizeBoolean(
       settings.mobileStickySectionMeter,
       DEFAULT_SETTINGS.mobileStickySectionMeter
@@ -2620,7 +2736,13 @@ function normalizeTargetOverageWarningPercent(value: unknown): number {
 }
 
 function normalizeTargetProgressLabelStyle(value: unknown): SectionMeterSettings["targetProgressLabelStyle"] {
-  return value === "percentage" ? "percentage" : DEFAULT_SETTINGS.targetProgressLabelStyle;
+  return value === "percentage" || value === "remaining"
+    ? value
+    : DEFAULT_SETTINGS.targetProgressLabelStyle;
+}
+
+function normalizeTargetPresets(value: unknown): string {
+  return typeof value === "string" ? value : DEFAULT_SETTINGS.targetPresets;
 }
 
 function normalizeMobileMeterPosition(

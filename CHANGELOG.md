@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.0
+
+- Quick target presets: configure commonly used word, character, or reading-time targets for one-tap selection.
+- Added a **remaining** target display option, so you can see how much writing is left to do.
+- Get a gentle notification when you reach a whole-note or section target—if you choose to turn it on.
+- **Beta: redesigned mobile target meter**
+  - Compact, theme-aware progress bar above Obsidian’s mobile toolbar.
+  - Tap the bar to edit the active target.
+  - Tap the value on the right to switch between percentage and current/target.
+- **Bugfix:** Heading badges no longer briefly appear in the wrong place after deleting or recreating a heading, especially on mobile.
+- **Bugfix:** Improved target-state handling when moving between notes.
+
 ## 1.3.0
 
 - Up to 4× faster on long notes.

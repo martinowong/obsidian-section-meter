@@ -32,6 +32,8 @@ export interface SectionMeterSettings {
   showStatusBarCharacters: boolean;
   targetOverageWarningPercent: number;
   targetProgressLabelStyle: TargetProgressLabelStyle;
+  targetPresets: string;
+  notifyOnTargetReached: boolean;
   mobileStickySectionMeter: boolean;
   mobileMeterPosition: MobileMeterPosition;
   previewSticky: boolean;
@@ -69,7 +71,7 @@ export interface ReadingTimeSummaries {
 }
 
 export type WritingTargetMetric = "words" | "characters" | "reading-time";
-export type TargetProgressLabelStyle = "count" | "percentage";
+export type TargetProgressLabelStyle = "count" | "percentage" | "remaining";
 export type MobileMeterPosition = "top" | "bottom";
 
 export interface WritingTarget {
@@ -908,6 +910,16 @@ function formatWritingTargetProgressLabel(
 ): string {
   if (labelStyle === "percentage") {
     return `${Math.round(percent)}%`;
+  }
+
+  if (labelStyle === "remaining") {
+    const remaining = Math.max(0, targetValue - currentValue);
+    if (metric === "reading-time") {
+      return remaining === 0 ? "Target reached" : `${formatSeconds(remaining)} left`;
+    }
+
+    const unit = metric === "words" ? "words" : "characters";
+    return remaining === 0 ? "Target reached" : `${remaining} ${unit} left`;
   }
 
   if (metric === "reading-time") {

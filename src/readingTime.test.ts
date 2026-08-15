@@ -40,6 +40,8 @@ const settings = {
   showStatusBarCharacters: false,
   targetOverageWarningPercent: 125,
   targetProgressLabelStyle: "count" as const,
+  targetPresets: "250 words, 500 words, 10m",
+  notifyOnTargetReached: false,
   mobileStickySectionMeter: false,
   mobileMeterPosition: "bottom" as const,
   previewSticky: true
@@ -670,6 +672,38 @@ describe("writing target progress", () => {
       percent: 50,
       label: "50%"
     });
+  });
+
+  it("can show the remaining amount for word, character, and reading-time targets", () => {
+    const wordTarget = summarizeSectionReadingTimes("# Draft\nTarget: 8 words\none two three four", {
+      ...settings,
+      targetProgressLabelStyle: "remaining"
+    })[0];
+    const characterTarget = summarizeSectionReadingTimes("# Draft\nTarget: 10 characters\nhello", {
+      ...settings,
+      targetProgressLabelStyle: "remaining"
+    })[0];
+    const timedTarget = summarizeSectionReadingTimes([
+      "# Timed",
+      "Target: 1m",
+      Array.from({ length: 100 }, (_, index) => `word${index}`).join(" ")
+    ].join("\n"), {
+      ...settings,
+      targetProgressLabelStyle: "remaining"
+    })[0];
+
+    expect(wordTarget.target?.label).toBe("4 words left");
+    expect(characterTarget.target?.label).toBe("5 characters left");
+    expect(timedTarget.target?.label).toBe("0m 30s left");
+  });
+
+  it("labels completed remaining targets as reached", () => {
+    const summary = summarizeSectionReadingTimes("# Draft\nTarget: 2 words\none two", {
+      ...settings,
+      targetProgressLabelStyle: "remaining"
+    })[0];
+
+    expect(summary.target?.label).toBe("Target reached");
   });
 });
 

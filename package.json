@@ -9,7 +9,8 @@
     "build:local": "node scripts/build-local.mjs",
     "lint": "eslint main.ts src/**/*.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "verify:release": "npm test && npm run lint && npm run build && git diff --exit-code -- main.js"
   },
   "keywords": [
     "obsidian",

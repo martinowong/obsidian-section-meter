@@ -35,6 +35,7 @@ import {
   WritingTargetScope,
   createWritingTargetTextEdit,
   formatReadingTime,
+  formatSeconds,
   formatWritingTargetCountLabel,
   getActiveSectionTargetAtPosition,
   getActiveSectionTargetSummaryAtPosition,
@@ -378,6 +379,7 @@ export default class SectionMeterPlugin extends Plugin {
       () => this.settings,
       (status) => this.updateStatusBar(status),
       (position) => this.updateMobileMeterPosition(position),
+      (scope) => this.openMobileTargetEditor(scope),
       (view, summaries) => this.cacheReadingTimes(view, summaries)
     );
 

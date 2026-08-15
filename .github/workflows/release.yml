@@ -39,7 +39,7 @@ jobs:
 
       - name: Verify release version
         run: |
-          node -e "const manifest = require('./manifest.json'); if (manifest.version !== process.env.RELEASE_TAG) { throw new Error(`manifest.json version ${manifest.version} does not match release tag ${process.env.RELEASE_TAG}`); }"
+          node -e 'const manifest = require("./manifest.json"); if (manifest.version !== process.env.RELEASE_TAG) { throw new Error(`manifest.json version ${manifest.version} does not match release tag ${process.env.RELEASE_TAG}`); }'
 
       - name: Run tests
         run: npm test

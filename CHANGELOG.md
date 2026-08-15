@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1
+
+- **Bugfix:** Fixed the Quick targets label to use Obsidian’s native element helper, resolving the plugin-review warning.
+
 ## 1.4.0
 
 - Quick target presets: configure commonly used word, character, or reading-time targets for one-tap selection.

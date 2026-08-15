@@ -686,7 +686,7 @@ class WritingTargetModal extends Modal {
 
     if (this.presets.length > 0) {
       const presetEl = formEl.createDiv({ cls: "section-meter-target-presets" });
-      presetEl.createEl("div", { text: "Quick targets", cls: "setting-item-name" });
+      presetEl.createDiv({ text: "Quick targets", cls: "setting-item-name" });
       const buttonsEl = presetEl.createDiv({ cls: "section-meter-target-preset-buttons" });
       for (const preset of this.presets) {
         const button = buttonsEl.createEl("button", {

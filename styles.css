@@ -114,21 +114,6 @@
   transform: none;
 }
 
-.section-meter-title-group {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.35em 0.5em;
-  max-inline-size: 100%;
-}
-
-.section-meter-title-group .inline-title {
-  flex: 0 1 auto;
-  min-inline-size: 0;
-  inline-size: auto;
-  margin: 0;
-}
-
 body.is-mobile .markdown-source-view.mod-cm6 .section-meter-title-badge,
 body.is-mobile .markdown-preview-view .section-meter-title-badge,
 body.is-mobile .section-meter-title-badge,

@@ -500,9 +500,7 @@ export default class SectionMeterPlugin extends Plugin {
       false,
       "Whole note stats"
     );
-    const titleGroup = titleRow.createDiv({ cls: "section-meter-title-group" });
-    titleRow.insertBefore(titleGroup, titleEl);
-    titleGroup.append(titleEl, badge);
+    titleEl.append(badge);
   }
 
   private updateStatusBar(status: StatusBarStats | null) {

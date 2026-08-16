@@ -101,26 +101,33 @@
   opacity: 0.78;
 }
 
-.markdown-source-view.mod-cm6 .section-meter-title-badge,
-.markdown-preview-view .section-meter-title-badge,
-.section-meter-title-badge {
+.section-meter-title-row {
+  position: relative;
+  overflow: visible;
+}
+
+.markdown-source-view.mod-cm6 .section-meter-title-row .section-meter-title-badge,
+.markdown-preview-view .section-meter-title-row .section-meter-title-badge,
+.section-meter-title-row .section-meter-title-badge {
   display: inline-flex;
-  position: static;
+  position: absolute;
   inset: auto;
   flex: 0 0 auto;
   margin: 0;
   font-size: var(--font-ui-small);
   vertical-align: middle;
   transform: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-body.is-mobile .markdown-source-view.mod-cm6 .section-meter-title-badge,
-body.is-mobile .markdown-preview-view .section-meter-title-badge,
-body.is-mobile .section-meter-title-badge,
-.is-mobile .markdown-source-view.mod-cm6 .section-meter-title-badge,
-.is-mobile .markdown-preview-view .section-meter-title-badge,
-.is-mobile .section-meter-title-badge {
-  position: static;
+body.is-mobile .markdown-source-view.mod-cm6 .section-meter-title-row .section-meter-title-badge,
+body.is-mobile .markdown-preview-view .section-meter-title-row .section-meter-title-badge,
+body.is-mobile .section-meter-title-row .section-meter-title-badge,
+.is-mobile .markdown-source-view.mod-cm6 .section-meter-title-row .section-meter-title-badge,
+.is-mobile .markdown-preview-view .section-meter-title-row .section-meter-title-badge,
+.is-mobile .section-meter-title-row .section-meter-title-badge {
+  position: absolute;
   inset: auto;
   max-inline-size: 100%;
   box-sizing: border-box;
@@ -167,10 +174,10 @@ body.is-mobile .section-meter-target-progress,
 }
 
 @media (max-width: 700px) {
-  .markdown-source-view.mod-cm6 .section-meter-title-badge,
-  .markdown-preview-view .section-meter-title-badge,
-  .section-meter-title-badge {
-    position: static;
+  .markdown-source-view.mod-cm6 .section-meter-title-row .section-meter-title-badge,
+  .markdown-preview-view .section-meter-title-row .section-meter-title-badge,
+  .section-meter-title-row .section-meter-title-badge {
+    position: absolute;
     inset: auto;
     max-inline-size: 100%;
     box-sizing: border-box;

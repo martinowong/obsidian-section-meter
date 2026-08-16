@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.3
+
+- **Bugfix:** Fixed the previous bugfix...
+
 ## 1.4.2
 
 - **Bugfix:** Fixed inline note-title stats shifting the title out of alignment in centered layouts.

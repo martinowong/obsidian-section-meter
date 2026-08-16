@@ -46,6 +46,10 @@ import {
   summarizeReadingTimes,
   summarizeSectionReadingTimes
 } from "./src/readingTime";
+import {
+  documentChangesMayAffectHeadings,
+  selectionIntersectsHeading
+} from "./src/headingDecorations";
 
 declare const __SECTION_METER_BUILD_LABEL__: string;
 
@@ -468,6 +472,9 @@ export default class SectionMeterPlugin extends Plugin {
       .querySelectorAll(".section-meter-title-badge")
       .forEach((badge) => badge.remove());
     container
+      .querySelectorAll<HTMLElement>(".section-meter-title-row")
+      .forEach((row) => row.removeClass("section-meter-title-row"));
+    container
       .querySelectorAll<HTMLElement>(".section-meter-title-group")
       .forEach((group) => {
         const titleEl = group.querySelector<HTMLElement>(":scope > .inline-title");
@@ -500,7 +507,26 @@ export default class SectionMeterPlugin extends Plugin {
       false,
       "Whole note stats"
     );
-    titleEl.append(badge);
+    // Never put UI inside `.inline-title`: Obsidian serializes that element as
+    // the note title, including `contenteditable=false` children. A positioned
+    // sibling leaves its text and native centering completely untouched.
+    titleRow.addClass("section-meter-title-row");
+    badge.setAttribute("aria-hidden", "true");
+    badge.setCssProps({ visibility: "hidden" });
+    titleRow.append(badge);
+
+    window.requestAnimationFrame(() => {
+      if (!badge.isConnected || !titleEl.isConnected) {
+        return;
+      }
+      const rowRect = titleRow.getBoundingClientRect();
+      const titleRect = titleEl.getBoundingClientRect();
+      badge.setCssProps({
+        left: `${titleRect.left - rowRect.left}px`,
+        top: `${titleRect.bottom - rowRect.top + 2}px`,
+        visibility: "visible"
+      });
+    });
   }
 
   private updateStatusBar(status: StatusBarStats | null) {
@@ -801,6 +827,8 @@ function createSectionMeterExtension(
     private selectionBadgeRefreshQueued = false;
     private documentStatsUpdateTimer: number | null = null;
     private documentStatsRefreshQueued = false;
+    private documentStatsRefreshDeferred = false;
+    private hasPendingStructuralHeadingChange = false;
     private applySelectionBadgeOverride = true;
     private mobileMeterEl: HTMLElement | null = null;
     private mobileMeterScrollDom: HTMLElement | null = null;
@@ -836,10 +864,29 @@ function createSectionMeterExtension(
         // place an old badge in ordinary text when a heading is deleted or
         // recreated (especially on mobile). Ordinary prose edits can keep their
         // mapped badges while fresh statistics are prepared.
-        this.decorations = documentChangesMayAffectHeadings(update, this.summaries)
-          ? Decoration.none
-          : this.decorations.map(update.changes);
-        this.queueDocumentStatsRefresh(update.view);
+        const headingStructureChanged = documentChangesMayAffectHeadings(
+          getDocumentChanges(update)
+        );
+        const editStartedInHeading = update.startState.selection.ranges.some((range) => (
+          selectionIntersectsHeading(range.from, range.to, this.summaries)
+        ));
+
+        if (!headingStructureChanged && editStartedInHeading) {
+          // Keep the badge at the actual end of the heading on every keystroke.
+          // Updating the existing widget DOM avoids the blink caused by removing
+          // and recreating it after a debounce.
+          this.cancelDocumentStatsRefresh();
+          this.refreshDocumentStats(update.view);
+          this.documentStatsRefreshDeferred = false;
+          this.hasPendingStructuralHeadingChange = false;
+          this.decorations = this.buildDecorations(update.view);
+        } else {
+          this.decorations = headingStructureChanged
+            ? Decoration.none
+            : this.decorations.map(update.changes);
+          this.hasPendingStructuralHeadingChange ||= headingStructureChanged;
+          this.queueDocumentStatsRefresh(update.view);
+        }
       }
 
       let shouldRebuildDecorations = update.viewportChanged
@@ -851,7 +898,14 @@ function createSectionMeterExtension(
         this.summaries = summaries.sections;
         this.noteSummary = summaries.note;
         cacheReadingTimes(update.view, summaries);
-        shouldRebuildDecorations = true;
+        if (this.hasPendingStructuralHeadingChange
+          || !this.selectionIsInsideHeading(update.view)) {
+          shouldRebuildDecorations = true;
+          this.documentStatsRefreshDeferred = false;
+          this.hasPendingStructuralHeadingChange = false;
+        } else {
+          this.documentStatsRefreshDeferred = true;
+        }
       }
       if (this.selectionBadgeRefreshQueued) {
         this.selectionBadgeRefreshQueued = false;
@@ -860,6 +914,11 @@ function createSectionMeterExtension(
       }
 
       if (update.selectionSet || update.focusChanged) {
+        if (this.documentStatsRefreshDeferred && !this.selectionIsInsideHeading(update.view)) {
+          this.documentStatsRefreshDeferred = false;
+          this.hasPendingStructuralHeadingChange = false;
+          shouldRebuildDecorations = true;
+        }
         this.applySelectionBadgeOverride = false;
         if (update.view.state.selection.ranges.some((range) => !range.empty)) {
           this.queueSelectionBadgeRefresh(update.view);
@@ -911,6 +970,21 @@ function createSectionMeterExtension(
       }, DOCUMENT_STATS_UPDATE_DELAY_MS);
     }
 
+    private cancelDocumentStatsRefresh() {
+      if (this.documentStatsUpdateTimer !== null) {
+        window.clearTimeout(this.documentStatsUpdateTimer);
+        this.documentStatsUpdateTimer = null;
+      }
+      this.documentStatsRefreshQueued = false;
+    }
+
+    private refreshDocumentStats(view: EditorView) {
+      const summaries = summarizeReadingTimes(view.state.doc.toString(), getSettings());
+      this.summaries = summaries.sections;
+      this.noteSummary = summaries.note;
+      cacheReadingTimes(view, summaries);
+    }
+
     private queueSelectionBadgeRefresh(view: EditorView) {
       if (this.selectionBadgeUpdateTimer !== null) {
         window.clearTimeout(this.selectionBadgeUpdateTimer);
@@ -929,6 +1003,14 @@ function createSectionMeterExtension(
         this.selectionBadgeUpdateTimer = null;
       }
       this.selectionBadgeRefreshQueued = false;
+    }
+
+    private selectionIsInsideHeading(view: EditorView): boolean {
+      return view.state.selection.ranges.some((range) => selectionIntersectsHeading(
+        range.from,
+        range.to,
+        this.summaries
+      ));
     }
 
     private buildDecorations(view: EditorView): DecorationSet {
@@ -1025,30 +1107,22 @@ function createSectionMeterExtension(
   });
 }
 
-function documentChangesMayAffectHeadings(
-  update: ViewUpdate,
-  summaries: SectionMeterSummary[]
-): boolean {
-  let affectsHeadings = false;
-
+function getDocumentChanges(update: ViewUpdate) {
+  const changes: Array<{
+    from: number;
+    to: number;
+    removedText: string;
+    insertedText: string;
+  }> = [];
   update.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
-    if (affectsHeadings) {
-      return;
-    }
-
-    const removedText = update.startState.doc.sliceString(fromA, toA);
-    const insertedText = inserted.toString();
-    if (removedText.includes("\n") || insertedText.includes("\n") || insertedText.includes("#")) {
-      affectsHeadings = true;
-      return;
-    }
-
-    affectsHeadings = summaries.some((summary) => (
-      fromA <= summary.headingEnd && toA >= summary.from
-    ));
+    changes.push({
+      from: fromA,
+      to: toA,
+      removedText: update.startState.doc.sliceString(fromA, toA),
+      insertedText: inserted.toString()
+    });
   });
-
-  return affectsHeadings;
+  return changes;
 }
 
 function getPositionAtVisibleViewportTop(view: EditorView): number {
@@ -1323,6 +1397,21 @@ class ReadingTimeWidget extends WidgetType {
       && this.scopeLabel === other.scopeLabel;
   }
 
+  updateDOM(dom: HTMLElement): boolean {
+    const replacement = this.toDOM();
+    dom.className = replacement.className;
+    for (const attribute of Array.from(dom.attributes)) {
+      if (!replacement.hasAttribute(attribute.name)) {
+        dom.removeAttribute(attribute.name);
+      }
+    }
+    for (const attribute of Array.from(replacement.attributes)) {
+      dom.setAttribute(attribute.name, attribute.value);
+    }
+    dom.replaceChildren(...Array.from(replacement.childNodes));
+    return true;
+  }
+
   toDOM(): HTMLElement {
     return createReadingTimeBadge(
       this.label,
@@ -1337,7 +1426,10 @@ class ReadingTimeWidget extends WidgetType {
   }
 
   get editable(): boolean {
-    return true;
+    // A stats badge is UI, not part of the editor's text flow. Marking it
+    // editable lets CodeMirror place text on either side of the widget while a
+    // heading is being typed, which can split the heading around the badge.
+    return false;
   }
 
   ignoreEvent(): boolean {

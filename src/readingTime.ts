@@ -930,11 +930,11 @@ function formatWritingTargetProgressLabel(
   if (labelStyle === "remaining") {
     const remaining = Math.max(0, targetValue - currentValue);
     if (metric === "reading-time") {
-      return remaining === 0 ? "Target reached" : `${formatSeconds(remaining)} left`;
+      return remaining === 0 ? "Reached" : `${formatSeconds(remaining)} left`;
     }
 
     const unit = metric === "words" ? "words" : "characters";
-    return remaining === 0 ? "Target reached" : `${remaining} ${unit} left`;
+    return remaining === 0 ? "Reached" : `${remaining} ${unit} left`;
   }
 
   if (metric === "reading-time") {

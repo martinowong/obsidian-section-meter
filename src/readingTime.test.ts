@@ -704,7 +704,7 @@ describe("writing target progress", () => {
       targetProgressLabelStyle: "remaining"
     })[0];
 
-    expect(summary.target?.label).toBe("Target reached");
+    expect(summary.target?.label).toBe("Reached");
   });
 });
 

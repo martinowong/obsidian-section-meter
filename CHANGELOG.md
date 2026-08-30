@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.4
+
+- Section Writing Stats has a new command for the Command Palette: it lets you quickly cycle target labels between count, percentage, and remaining.
+
 ## 1.4.3
 
 - **Bugfix:** Fixed the previous bugfix...

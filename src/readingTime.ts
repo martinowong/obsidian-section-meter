@@ -74,6 +74,21 @@ export type WritingTargetMetric = "words" | "characters" | "reading-time";
 export type TargetProgressLabelStyle = "count" | "percentage" | "remaining";
 export type MobileMeterPosition = "top" | "bottom";
 
+const TARGET_PROGRESS_LABEL_STYLES: readonly TargetProgressLabelStyle[] = [
+  "count",
+  "percentage",
+  "remaining"
+];
+
+export function getNextTargetProgressLabelStyle(
+  current: TargetProgressLabelStyle
+): TargetProgressLabelStyle {
+  const currentIndex = TARGET_PROGRESS_LABEL_STYLES.indexOf(current);
+  return TARGET_PROGRESS_LABEL_STYLES[
+    (currentIndex + 1) % TARGET_PROGRESS_LABEL_STYLES.length
+  ];
+}
+
 export interface WritingTarget {
   metric: WritingTargetMetric;
   targetValue: number;

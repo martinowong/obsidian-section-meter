@@ -6,6 +6,7 @@ import {
   formatReadingTime,
   formatSeconds,
   formatWritingTargetCountLabel,
+  getNextTargetProgressLabelStyle,
   getActiveSectionTargetAtPosition,
   getActiveSectionTargetSummaryAtPosition,
   getActiveWritingTargetAtPosition,
@@ -724,6 +725,14 @@ describe("formatWritingTargetCountLabel", () => {
       currentValue: 150,
       targetValue: 300
     })).toBe("2m 30s / 5m 00s");
+  });
+});
+
+describe("getNextTargetProgressLabelStyle", () => {
+  it("cycles count, percentage, and remaining in order", () => {
+    expect(getNextTargetProgressLabelStyle("count")).toBe("percentage");
+    expect(getNextTargetProgressLabelStyle("percentage")).toBe("remaining");
+    expect(getNextTargetProgressLabelStyle("remaining")).toBe("count");
   });
 });
 

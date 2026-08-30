@@ -7,6 +7,8 @@
     "dev": "node esbuild.config.mjs",
     "build": "tsc --noEmit --skipLibCheck && node esbuild.config.mjs production",
     "build:local": "node scripts/build-local.mjs",
+    "install:test-vault": "node scripts/install-test-vault.mjs",
+    "refresh:test-vault": "npm run build:local && npm run install:test-vault",
     "lint": "eslint main.ts src/**/*.ts",
     "test": "vitest run",
     "test:watch": "vitest",

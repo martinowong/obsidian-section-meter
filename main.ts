@@ -37,6 +37,7 @@ import {
   formatReadingTime,
   formatSeconds,
   formatWritingTargetCountLabel,
+  getNextTargetProgressLabelStyle,
   getActiveSectionTargetAtPosition,
   getActiveSectionTargetSummaryAtPosition,
   estimateSeconds,
@@ -225,6 +226,13 @@ export default class SectionMeterPlugin extends Plugin {
 
   private registerStatsDisplayCommands() {
     this.addCommand({
+      id: "cycle-target-progress-label",
+      name: "Cycle target progress label",
+      callback: () => {
+        void this.cycleTargetProgressLabelStyle();
+      }
+    });
+    this.addCommand({
       id: "toggle-plugin",
       name: "Toggle plugin on/off",
       callback: () => {
@@ -259,6 +267,21 @@ export default class SectionMeterPlugin extends Plugin {
         });
       }
     });
+  }
+
+  private async cycleTargetProgressLabelStyle(): Promise<void> {
+    const nextStyle = getNextTargetProgressLabelStyle(
+      this.settings.targetProgressLabelStyle
+    );
+    this.settings.targetProgressLabelStyle = nextStyle;
+    await this.saveSettings();
+
+    const label = {
+      count: "count",
+      percentage: "percentage",
+      remaining: "remaining amount"
+    }[nextStyle];
+    new Notice(`Target progress now shows ${label}.`);
   }
 
   private async setPluginEnabled(enabled: boolean): Promise<void> {

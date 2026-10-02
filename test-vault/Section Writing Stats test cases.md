@@ -1,14 +1,24 @@
+Target: 100 words
+
 # Section Writing Stats test cases
 
-Use this note after `npm run install:test-vault` to check the plugin in Obsidian's editor and Reading view.
-
-Target: 100 words
+Use this note after `npm run install:test-vault` to check the plugin in Obsidian's editor (Live Preview). Statistics are not displayed in Reading view.
 
 This note deliberately contains targets, nested headings, punctuation, emoji 👋, inline code like `const ignored = true`, and a fenced code block. The count should include readable prose only, and the whole-note target should remain active in sections without their own target.
 
 ## Inherited target
 
 This section has no target of its own, so it should show the 100-word whole-note target. Edit this heading, delete and retype part of it, and move the cursor around it. The badge must not enter the editable heading or make the editor jump.
+
+## Parent section target
+
+Target: 50 words
+
+This parent owns a 50-word target. Put the cursor here, scroll to another targeted section, then tap the mobile meter: it must edit the displayed section, not the cursor's section.
+
+### Child inherits parent target
+
+This child has no target. Its mobile meter must use the parent target and edit the parent's target line when tapped.
 
 ### Section word target
 
@@ -19,6 +29,23 @@ This child has its own 25-word target. Its badge should take priority over the i
 #### Nested child inherits section target
 
 This heading has no target. Its statistics should include this text while its target remains the 25-word one above.
+
+## Horizontal-rule regression
+---
+alpha beta gamma
+---
+delta epsilon
+
+%%
+# Hidden heading
+Target: 1 words
+This comment must not affect structure or counts.
+%%
+<!--
+## Another hidden heading
+Target: 2 characters
+This comment must also be ignored.
+-->
 
 ## Character target
 

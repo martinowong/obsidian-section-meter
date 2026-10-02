@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   countReadableCharacters,
   countReadableWords,
@@ -48,7 +49,46 @@ const settings = {
   previewSticky: true
 };
 
+describe("manual test-vault fixture", () => {
+  it("keeps the whole-note target distinct from parent-section targets", () => {
+    const markdown = readFileSync(new URL("../test-vault/Section Writing Stats test cases.md", import.meta.url), "utf8");
+    const summaries = summarizeReadingTimes(markdown, settings);
+    expect(summaries.note.target?.targetValue).toBe(100);
+    expect(summaries.sections[0].target).toBeNull();
+    expect(summaries.sections.find((section) => section.title === "Parent section target")?.target?.targetValue).toBe(50);
+  });
+});
+
 describe("parseHeadingSections", () => {
+  it("excludes commented headings, targets, and prose with original edit offsets", () => {
+    for (const [open, close] of [["<!--", "-->"], ["%%", "%%"]]) {
+      const markdown = `${open}\r\n# Hidden\r\nTarget: 1 words\r\nsecret text\r\n${close}\r\n# Visible\r\nTarget: 10 words\r\nhello world\r\n`;
+      const summaries = summarizeReadingTimes(markdown, settings);
+      expect(summaries.sections.map((section) => section.title)).toEqual(["Visible"]);
+      expect(summaries.sections[0].wordCount).toBe(2);
+      expect(summaries.note.wordCount).toBe(3);
+      expect(summaries.note.target).toBeNull();
+      expect(summaries.sections[0].target?.targetValue).toBe(10);
+      const edit = createWritingTargetTextEdit(markdown, "section", markdown.indexOf("hello"), { metric: "words", targetValue: 20 });
+      expect(edit && markdown.slice(edit.from, edit.to)).toBe("Target: 10 words");
+    }
+  });
+
+  it("does not treat horizontal rules inside a section as document frontmatter", () => {
+    const markdown = "# Intro\n---\nalpha beta gamma\n---\ndelta epsilon\n";
+    expect(summarizeSectionReadingTimes(markdown, settings)[0].wordCount).toBe(5);
+  });
+
+  it("ignores unfinished comments without treating comment delimiters in code as comments", () => {
+    const markdown = "# Visible\nhello `%%` world\n```text\n<!--\n%%\n```\n## Child\nkept prose\n%% unfinished\n# Hidden\nTarget: 1 words";
+    const summaries = summarizeReadingTimes(markdown, settings);
+    expect(summaries.sections.map((section) => section.title)).toEqual(["Visible", "Child"]);
+    expect(summaries.sections[0].wordCount).toBe(5);
+    expect(summaries.sections[1].wordCount).toBe(2);
+    expect(summaries.sections[1].target).toBeNull();
+    expect(countReadableCharacters("hello %% secret %% world")).toBe(11);
+  });
+
   it("creates a section for a single heading", () => {
     const sections = parseHeadingSections("# Intro\nHello world\n");
 

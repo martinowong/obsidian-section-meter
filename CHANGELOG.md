@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.5
+
+- **Bugfix:** Note-title stats no longer overlap the first line or interfere with title editing.
+- **Bugfix:** The mobile target meter responds to the first tap and edits the target currently displayed.
+- **Bugfix:** Statistics correctly follow the active note when multiple panes are open.
+- **Bugfix:** Improved target-reached notifications when editing or switching notes.
+- **Bugfix:** Corrected counting and section boundaries around comments and horizontal rules.
+- **Bugfix:** Improved settings updates and cleanup when disabling the plugin.
+
 ## 1.4.4
 
 - Section Writing Stats has a new command for the Command Palette: it lets you quickly cycle target labels between count, percentage, and remaining.

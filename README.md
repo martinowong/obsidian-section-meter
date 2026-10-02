@@ -112,7 +112,7 @@ You can configure:
 - Word count, character count, and reading-time visibility
 - Heading badges, title badges, and status-bar statistics
 - Compact labels and custom separators
-- Count-based or percentage-based target labels
+- Count, percentage, or remaining target labels
 - Reading speed and character-count spacing
 - The target overage warning threshold
 - Whether empty or very short sections show badges
@@ -149,6 +149,15 @@ npm run build
 ```
 
 For local testing, copy or symlink the repository into `.obsidian/plugins/section-meter`, build the plugin, and enable it in Obsidian.
+
+To install the local build and the canonical regression note into your existing test vault:
+
+```sh
+npm run build:local
+SECTION_METER_TEST_VAULT="/absolute/path/to/test-vault" npm run install:test-vault
+```
+
+The installer replaces `Section Writing Stats test cases.md` with the repository's fixture. Use Live Preview to check title/heading editing, target inheritance, comment exclusions, and horizontal rules. With two Markdown panes open, verify that the status bar follows the active pane and that tapping the mobile meter edits the displayed target rather than the cursor's section. Disable the plugin and confirm its title badges disappear without changing the note title.
 
 ## License
 

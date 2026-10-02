@@ -101,17 +101,18 @@
   opacity: 0.78;
 }
 
-.section-meter-title-row {
-  position: relative;
-  overflow: visible;
+.section-meter-title-row > .inline-title {
+  margin-block-end: 2px;
 }
 
 .markdown-source-view.mod-cm6 .section-meter-title-row .section-meter-title-badge,
 .markdown-preview-view .section-meter-title-row .section-meter-title-badge,
 .section-meter-title-row .section-meter-title-badge {
-  display: inline-flex;
-  position: absolute;
+  display: flex;
+  position: static;
   inset: auto;
+  inline-size: fit-content;
+  max-inline-size: 100%;
   flex: 0 0 auto;
   margin: 0;
   font-size: var(--font-ui-small);
@@ -127,7 +128,7 @@ body.is-mobile .section-meter-title-row .section-meter-title-badge,
 .is-mobile .markdown-source-view.mod-cm6 .section-meter-title-row .section-meter-title-badge,
 .is-mobile .markdown-preview-view .section-meter-title-row .section-meter-title-badge,
 .is-mobile .section-meter-title-row .section-meter-title-badge {
-  position: absolute;
+  position: static;
   inset: auto;
   max-inline-size: 100%;
   box-sizing: border-box;
@@ -177,7 +178,7 @@ body.is-mobile .section-meter-target-progress,
   .markdown-source-view.mod-cm6 .section-meter-title-row .section-meter-title-badge,
   .markdown-preview-view .section-meter-title-row .section-meter-title-badge,
   .section-meter-title-row .section-meter-title-badge {
-    position: absolute;
+    position: static;
     inset: auto;
     max-inline-size: 100%;
     box-sizing: border-box;

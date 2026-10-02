@@ -136,7 +136,7 @@ interface WritingTargetLine extends WritingTarget {
 const DEFAULT_WORDS_PER_MINUTE = 200;
 
 export function parseHeadingSections(markdown: string): HeadingSection[] {
-  const lines = splitLines(markdown);
+  const lines = splitLines(withoutMarkdownComments(markdown, true));
   const headings: HeadingCandidate[] = [];
   let inFence: { marker: string; length: number } | null = null;
   let inFrontmatter = lines[0]?.text.trim() === "---";
@@ -244,7 +244,7 @@ function summarizeParsedSections(
 
   return sections.map((section) => {
     const content = markdown.slice(section.contentFrom, section.to);
-    const readableText = stripMarkdownToReadableText(content);
+    const readableText = stripMarkdownToReadableText(content, false);
     const { wordCount, characterCount } = countReadableStats(
       readableText,
       settings.countCharactersWithSpaces
@@ -653,7 +653,8 @@ function normalizeCompactLabel(value: string, fallback: string): string {
   return normalized.length > 0 ? normalized : fallback;
 }
 
-function stripMarkdownToReadableText(markdown: string): string {
+function stripMarkdownToReadableText(markdown: string, isWholeDocument = true): string {
+  markdown = withoutMarkdownComments(markdown, false, isWholeDocument);
   if (canUsePlainTextFastPath(markdown)) {
     return markdown
       .replace(/^\s{0,3}#{1,6}\s+/gm, "")
@@ -661,10 +662,9 @@ function stripMarkdownToReadableText(markdown: string): string {
       .replace(/#/g, "");
   }
 
-  let text = removeFrontmatter(markdown);
+  let text = isWholeDocument ? removeFrontmatter(markdown) : markdown;
   text = removeFencedCodeBlocks(text);
   text = removeWritingTargetLines(text);
-  text = text.replace(/[ \t]*<!--[\s\S]*?-->[ \t]*/g, " ");
   text = text.replace(/^ {0,3}<([A-Za-z][\w-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1>\s*$/gm, "");
   text = text.replace(/^ {0,3}<\/?[A-Za-z][^>]*>\s*$/gm, "");
   text = text.replace(/^ {0,3}\|?(?:[ \t]*:?-{3,}:?[ \t]*\|)+[ \t]*:?-{3,}:?[ \t]*\|?[ \t]*$/gm, "");
@@ -700,7 +700,7 @@ function canUsePlainTextFastPath(markdown: string): boolean {
 }
 
 function parseWritingTargetLines(markdown: string): WritingTargetLine[] {
-  const lines = splitLines(markdown);
+  const lines = splitLines(withoutMarkdownComments(markdown, true));
   const targets: WritingTargetLine[] = [];
   let inFence: { marker: string; length: number } | null = null;
   let inFrontmatter = lines[0]?.text.trim() === "---";
@@ -1019,6 +1019,84 @@ function removeFrontmatter(markdown: string): string {
   }
 
   return markdown.slice(end.lineBreakTo);
+}
+
+// Structural parsing needs original offsets; readable-text counting needs no
+// comment-sized whitespace. Both use the same comment/code context.
+function withoutMarkdownComments(
+  markdown: string,
+  preserveOffsets: boolean,
+  isWholeDocument = true
+): string {
+  if (!markdown.includes("<!--") && !markdown.includes("%%")) {
+    return markdown;
+  }
+
+  const ranges: { from: number; to: number }[] = [];
+  const lines = splitLines(markdown);
+  let comment: { from: number; close: string } | null = null;
+  let fence: { marker: string; length: number } | null = null;
+  let frontmatter = isWholeDocument && lines[0]?.text.trim() === "---";
+
+  for (const [lineIndex, line] of lines.entries()) {
+    if (frontmatter) {
+      if (lineIndex > 0 && /^(---|\.\.\.)$/.test(line.text.trim())) {
+        frontmatter = false;
+      }
+      continue;
+    }
+    if (!comment) {
+      const marker = parseFence(line.text);
+      if (marker) {
+        if (!fence) {
+          fence = marker;
+        } else if (marker.marker === fence.marker && marker.length >= fence.length) {
+          fence = null;
+        }
+        continue;
+      }
+      if (fence) continue;
+    }
+
+    let position = line.from;
+    while (position < line.to) {
+      if (comment) {
+        const close = line.text.indexOf(comment.close, position - line.from);
+        if (close < 0) break;
+        position = line.from + close + comment.close.length;
+        ranges.push({ from: comment.from, to: position });
+        comment = null;
+      } else if (markdown[position] === "`") {
+        const ticks = /^`+/.exec(line.text.slice(position - line.from))?.[0] ?? "`";
+        const close = line.text.indexOf(ticks, position - line.from + ticks.length);
+        position = close >= 0 ? line.from + close + ticks.length : position + ticks.length;
+      } else if (markdown.startsWith("<!--", position) || markdown.startsWith("%%", position)) {
+        const html = markdown.startsWith("<!--", position);
+        comment = { from: position, close: html ? "-->" : "%%" };
+        position += html ? 4 : 2;
+      } else {
+        position++;
+      }
+    }
+  }
+  if (comment) ranges.push({ from: comment.from, to: markdown.length });
+  if (ranges.length === 0) return markdown;
+
+  const chunks: string[] = [];
+  let keptFrom = 0;
+  for (const range of ranges) {
+    const preceding = markdown.slice(keptFrom, range.from);
+    chunks.push(preserveOffsets ? preceding : preceding.replace(/[ \t]*$/, ""));
+    chunks.push(preserveOffsets
+      ? markdown.slice(range.from, range.to).replace(/[^\r\n]/g, " ")
+      : " ");
+    keptFrom = range.to;
+    if (!preserveOffsets) {
+      while (markdown[keptFrom] === " " || markdown[keptFrom] === "\t") keptFrom++;
+    }
+  }
+  chunks.push(markdown.slice(keptFrom));
+  return chunks.join("");
 }
 
 function removeFencedCodeBlocks(markdown: string): string {

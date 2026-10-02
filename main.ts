@@ -1,4 +1,4 @@
-import { Compartment, Extension, RangeSetBuilder, Text } from "@codemirror/state";
+import { Compartment, Extension, MapMode, RangeSetBuilder, Text } from "@codemirror/state";
 import {
   Decoration,
   DecorationSet,
@@ -51,6 +51,7 @@ import {
   documentChangesMayAffectHeadings,
   selectionIntersectsHeading
 } from "./src/headingDecorations";
+import { TargetCompletionTracker, type TargetCompletion } from "./src/targetCompletion";
 
 declare const __SECTION_METER_BUILD_LABEL__: string;
 
@@ -105,15 +106,16 @@ export default class SectionMeterPlugin extends Plugin {
   private extensionCompartment = new Compartment();
   private statusBarItem: HTMLElement | null = null;
   private lastStatusBarRenderKey = "hidden";
-  private titleBadgeUpdateTimer: number | null = null;
-  private targetCompletionStates = new Map<string, boolean>();
+  private titleBadgeUpdateTimers = new Map<MarkdownView, number>();
+  private unloaded = false;
   private readingTimeCache = new WeakMap<EditorView, {
     doc: Text;
-    settings: SectionMeterSettings;
+    settingsKey: string;
     summaries: ReadingTimeSummaries;
   }>();
 
   async onload() {
+    this.unloaded = false;
     await this.loadSettings();
     this.statusBarItem = this.addStatusBarItem();
     this.statusBarItem.classList.add("section-meter-status-bar");
@@ -124,20 +126,16 @@ export default class SectionMeterPlugin extends Plugin {
         () => this.settings,
         (status) => this.updateStatusBar(status),
         (position) => this.updateMobileMeterPosition(position),
-        (scope) => this.openMobileTargetEditor(scope),
-        (view, summaries) => this.cacheReadingTimes(view, summaries)
+        (view, scope, position) => this.openMobileTargetEditor(view, scope, position),
+        (view, summaries) => this.cacheReadingTimes(view, summaries),
+        (view) => this.isActiveEditor(view),
+        (view, reached) => this.notifyReachedTargets(view, reached),
+        (view) => this.getMarkdownViewForEditor(view)?.file?.path ?? null
       ))
     );
     this.addSettingTab(new SectionMeterSettingTab(this.app, this));
     this.registerWritingTargetCommands();
     this.registerStatsDisplayCommands();
-    this.registerEvent(
-      this.app.workspace.on("editor-change", (editor, info) => {
-        if (this.settings.enabled && this.settings.notifyOnTargetReached && info instanceof MarkdownView) {
-          this.notifyReachedTargets(editor, info);
-        }
-      })
-    );
     this.registerEvent(
       this.app.workspace.on("layout-change", () => {
         this.refreshTitleBadges();
@@ -145,9 +143,14 @@ export default class SectionMeterPlugin extends Plugin {
       })
     );
     this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => {
+        this.refreshActiveEditorUI();
+      })
+    );
+    this.registerEvent(
       this.app.workspace.on("file-open", () => {
         this.refreshTitleBadges();
-        this.refreshStatusBarFromActiveView();
+        this.refreshActiveEditorUI();
       })
     );
     this.registerEvent(
@@ -164,10 +167,13 @@ export default class SectionMeterPlugin extends Plugin {
   }
 
   onunload() {
-    if (this.titleBadgeUpdateTimer !== null) {
-      window.clearTimeout(this.titleBadgeUpdateTimer);
-      this.titleBadgeUpdateTimer = null;
-    }
+    this.unloaded = true;
+    for (const timer of this.titleBadgeUpdateTimers.values()) window.clearTimeout(timer);
+    this.titleBadgeUpdateTimers.clear();
+    this.app.workspace.getLeavesOfType("markdown").forEach((leaf) => {
+      if (leaf.view instanceof MarkdownView) removeTitleBadge(leaf.view.containerEl);
+    });
+    this.clearStatusBar();
   }
 
   async loadSettings() {
@@ -175,9 +181,10 @@ export default class SectionMeterPlugin extends Plugin {
     this.settings = normalizeSettings(readStoredSettings(loadedSettings));
   }
 
-  async saveSettings() {
+  async saveSettings({ refreshStats = true }: { refreshStats?: boolean } = {}) {
     this.settings = normalizeSettings(this.settings);
     await this.saveData(this.settings);
+    if (this.unloaded || !refreshStats) return;
     this.refreshEditorExtensions();
     this.refreshTitleBadges();
     this.refreshStatusBarFromActiveView();
@@ -189,16 +196,39 @@ export default class SectionMeterPlugin extends Plugin {
     }
 
     this.settings.mobileMeterPosition = position;
-    void this.saveSettings();
+    this.refreshActiveEditorUI();
+    void this.saveSettings({ refreshStats: false });
   }
 
-  private openMobileTargetEditor(scope: WritingTargetScope): void {
+  private isActiveEditor(editorView: EditorView): boolean {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (!view) {
+    return !!view && getEditorView(view) === editorView;
+  }
+
+  refreshMobileMeterPlacement(): void {
+    this.refreshActiveEditorUI();
+  }
+
+  private getMarkdownViewForEditor(editorView: EditorView): MarkdownView | undefined {
+    return this.app.workspace.getLeavesOfType("markdown").map((leaf) => leaf.view)
+      .find((view): view is MarkdownView => view instanceof MarkdownView && getEditorView(view) === editorView);
+  }
+
+  private refreshActiveEditorUI(): void {
+    if (this.unloaded) return;
+    this.app.workspace.getLeavesOfType("markdown").forEach((leaf) => {
+      if (leaf.view instanceof MarkdownView) getEditorView(leaf.view)?.dispatch({});
+    });
+    this.refreshStatusBarFromActiveView();
+  }
+
+  private openMobileTargetEditor(editorView: EditorView, scope: WritingTargetScope, position: number): void {
+    const view = this.getMarkdownViewForEditor(editorView);
+    if (!view || !this.isActiveEditor(editorView)) {
       return;
     }
 
-    this.openWritingTargetModal(view.editor, scope);
+    this.openWritingTargetModal(view.editor, scope, position);
   }
 
   private registerWritingTargetCommands() {
@@ -303,8 +333,11 @@ export default class SectionMeterPlugin extends Plugin {
     await this.saveSettings();
   }
 
-  private openWritingTargetModal(editor: Editor, scope: WritingTargetScope) {
-    const context = getWritingTargetCommandContext(editor, scope, this.settings);
+  private openWritingTargetModal(editor: Editor, scope: WritingTargetScope, position?: number) {
+    const context = getWritingTargetCommandContext(editor, scope, this.settings, position);
+    const owner = this.app.workspace.getLeavesOfType("markdown").map((leaf) => leaf.view)
+      .find((view): view is MarkdownView => view instanceof MarkdownView && view.editor === editor);
+    const ownerPath = owner?.file?.path;
     if (!context) {
       new Notice("Place the cursor inside a heading section first.");
       return;
@@ -316,16 +349,17 @@ export default class SectionMeterPlugin extends Plugin {
       context.existingTarget,
       getWritingTargetPresets(this.settings.targetPresets),
       (target) => {
-        const currentContext = getWritingTargetCommandContext(editor, scope, this.settings);
-        if (!currentContext) {
-          new Notice("The current section could not be found.");
+        // Keep the owner chosen when the modal opened, not the cursor's later
+        // location. Refuse stale offsets rather than modifying another section.
+        if (editor.getValue() !== context.markdown || (owner && owner.file?.path !== ownerPath)) {
+          new Notice("The note changed. Please open the target editor again.");
           return;
         }
 
         const edit = createWritingTargetTextEdit(
-          currentContext.markdown,
+          context.markdown,
           scope,
-          currentContext.position,
+          context.position,
           target
         );
         if (!edit) {
@@ -342,36 +376,10 @@ export default class SectionMeterPlugin extends Plugin {
     ).open();
   }
 
-  private notifyReachedTargets(editor: Editor, view: MarkdownView): void {
-    const markdown = editor.getValue();
-    const summaries = summarizeReadingTimes(markdown, this.settings);
-    const filePath = view.file?.path ?? "active-note";
-    const targets = [
-      { key: "note", label: "Whole-note", target: summaries.note.target },
-      ...summaries.sections.map((summary) => ({
-        key: `section:${summary.from}`,
-        label: summary.title,
-        target: summary.target
-      }))
-    ];
-
-    const activeKeys = new Set<string>();
-    for (const { key: targetKey, label, target } of targets) {
-      if (!target) {
-        continue;
-      }
-      const key = `${filePath}:${targetKey}:${target.metric}:${target.targetValue}`;
-      activeKeys.add(key);
-      const wasComplete = this.targetCompletionStates.get(key);
-      if (target.isComplete && wasComplete === false) {
-        new Notice(`${label} target reached — ${formatWritingTargetCountLabel(target)}.`);
-      }
-      this.targetCompletionStates.set(key, target.isComplete);
-    }
-    for (const key of this.targetCompletionStates.keys()) {
-      if (key.startsWith(`${filePath}:`) && !activeKeys.has(key)) {
-        this.targetCompletionStates.delete(key);
-      }
+  private notifyReachedTargets(view: EditorView, reached: TargetCompletion[]): void {
+    if (this.unloaded || !this.settings.notifyOnTargetReached || !this.isActiveEditor(view)) return;
+    for (const { label, target } of reached) {
+      new Notice(`${label} target reached — ${formatWritingTargetCountLabel(target)}.`);
     }
   }
 
@@ -406,8 +414,11 @@ export default class SectionMeterPlugin extends Plugin {
       () => this.settings,
       (status) => this.updateStatusBar(status),
       (position) => this.updateMobileMeterPosition(position),
-      (scope) => this.openMobileTargetEditor(scope),
-      (view, summaries) => this.cacheReadingTimes(view, summaries)
+      (view, scope, position) => this.openMobileTargetEditor(view, scope, position),
+      (view, summaries) => this.cacheReadingTimes(view, summaries),
+      (view) => this.isActiveEditor(view),
+      (view, reached) => this.notifyReachedTargets(view, reached),
+      (view) => this.getMarkdownViewForEditor(view)?.file?.path ?? null
     );
 
     this.app.workspace.getLeavesOfType("markdown").forEach((leaf) => {
@@ -431,7 +442,7 @@ export default class SectionMeterPlugin extends Plugin {
   }
 
   private refreshStatusBarFromActiveView() {
-    if (!this.settings.enabled) {
+    if (this.unloaded || !this.settings.enabled) {
       this.clearStatusBar();
       return;
     }
@@ -466,46 +477,34 @@ export default class SectionMeterPlugin extends Plugin {
   private cacheReadingTimes(view: EditorView, summaries: ReadingTimeSummaries) {
     this.readingTimeCache.set(view, {
       doc: view.state.doc,
-      settings: this.settings,
+      settingsKey: getReadingTimeSettingsKey(this.settings),
       summaries
     });
   }
 
   private getCachedReadingTimes(view: EditorView): ReadingTimeSummaries | null {
     const cached = this.readingTimeCache.get(view);
-    return cached?.doc === view.state.doc && cached.settings === this.settings
+    return cached?.doc === view.state.doc && cached.settingsKey === getReadingTimeSettingsKey(this.settings)
       ? cached.summaries
       : null;
   }
 
   private scheduleTitleBadgeRefresh(markdownView: MarkdownView) {
-    if (this.titleBadgeUpdateTimer !== null) {
-      window.clearTimeout(this.titleBadgeUpdateTimer);
-    }
+    if (this.unloaded) return;
+    const previous = this.titleBadgeUpdateTimers.get(markdownView);
+    if (previous !== undefined) window.clearTimeout(previous);
 
-    this.titleBadgeUpdateTimer = window.setTimeout(() => {
-      this.titleBadgeUpdateTimer = null;
+    const timer = window.setTimeout(() => {
+      this.titleBadgeUpdateTimers.delete(markdownView);
       this.refreshTitleBadge(markdownView);
     }, TITLE_BADGE_UPDATE_DELAY_MS);
+    this.titleBadgeUpdateTimers.set(markdownView, timer);
   }
 
   private refreshTitleBadge(markdownView: MarkdownView) {
+    if (this.unloaded) return;
     const container = markdownView.containerEl;
-    container
-      .querySelectorAll(".section-meter-title-badge")
-      .forEach((badge) => badge.remove());
-    container
-      .querySelectorAll<HTMLElement>(".section-meter-title-row")
-      .forEach((row) => row.removeClass("section-meter-title-row"));
-    container
-      .querySelectorAll<HTMLElement>(".section-meter-title-group")
-      .forEach((group) => {
-        const titleEl = group.querySelector<HTMLElement>(":scope > .inline-title");
-        if (titleEl && group.parentElement) {
-          group.parentElement.insertBefore(titleEl, group);
-        }
-        group.remove();
-      });
+    removeTitleBadge(container);
 
     if (!this.settings.enabled || !this.settings.showInlineTitleStats) {
       return;
@@ -531,28 +530,17 @@ export default class SectionMeterPlugin extends Plugin {
       "Whole note stats"
     );
     // Never put UI inside `.inline-title`: Obsidian serializes that element as
-    // the note title, including `contenteditable=false` children. A positioned
-    // sibling leaves its text and native centering completely untouched.
+    // the note title, including `contenteditable=false` children. An in-flow
+    // sibling reserves its own height without changing the title's alignment.
+    const titleGap = titleEl.ownerDocument.defaultView?.getComputedStyle(titleEl).marginBottom;
+    if (titleGap) badge.style.marginBlockEnd = titleGap;
     titleRow.addClass("section-meter-title-row");
     badge.setAttribute("aria-hidden", "true");
-    badge.setCssProps({ visibility: "hidden" });
-    titleRow.append(badge);
-
-    window.requestAnimationFrame(() => {
-      if (!badge.isConnected || !titleEl.isConnected) {
-        return;
-      }
-      const rowRect = titleRow.getBoundingClientRect();
-      const titleRect = titleEl.getBoundingClientRect();
-      badge.setCssProps({
-        left: `${titleRect.left - rowRect.left}px`,
-        top: `${titleRect.bottom - rowRect.top + 2}px`,
-        visibility: "visible"
-      });
-    });
+    titleEl.insertAdjacentElement("afterend", badge);
   }
 
   private updateStatusBar(status: StatusBarStats | null) {
+    if (this.unloaded) return;
     if (!this.statusBarItem) {
       return;
     }
@@ -633,10 +621,11 @@ interface WritingTargetCommandContext {
 function getWritingTargetCommandContext(
   editor: Editor,
   scope: WritingTargetScope,
-  settings: SectionMeterSettings
+  settings: SectionMeterSettings,
+  requestedPosition?: number
 ): WritingTargetCommandContext | null {
   const markdown = editor.getValue();
-  const position = editor.posToOffset(editor.getCursor());
+  const position = requestedPosition ?? editor.posToOffset(editor.getCursor());
   if (scope === "note") {
     return {
       markdown,
@@ -829,14 +818,17 @@ function formatWritingTargetPreset(target: WritingTarget): string {
   return `${target.targetValue} ${target.metric}`;
 }
 
-function createSectionMeterExtension(
+export function createSectionMeterExtension(
   getSettings: () => SectionMeterSettings,
   updateStatusBar: (status: StatusBarStats | null) => void,
   updateMobileMeterPosition: (
     position: SectionMeterSettings["mobileMeterPosition"]
   ) => void,
-  openMobileTargetEditor: (scope: WritingTargetScope) => void,
-  cacheReadingTimes: (view: EditorView, summaries: ReadingTimeSummaries) => void
+  openMobileTargetEditor: (view: EditorView, scope: WritingTargetScope, position: number) => void,
+  cacheReadingTimes: (view: EditorView, summaries: ReadingTimeSummaries) => void,
+  isActiveView: (view: EditorView) => boolean = () => true,
+  onTargetsReached: (view: EditorView, reached: TargetCompletion[]) => void = () => {},
+  getDocumentIdentity: (view: EditorView) => string | null = () => null
 ): Extension {
   if (!getSettings().enabled) {
     return [];
@@ -846,6 +838,9 @@ function createSectionMeterExtension(
     decorations: DecorationSet;
     private summaries: SectionMeterSummary[];
     private noteSummary: ReturnType<typeof summarizeNoteReadingTime>;
+    private analyzedDoc: Text;
+    private completionTracker: TargetCompletionTracker;
+    private documentIdentity: string | null;
     private selectionBadgeUpdateTimer: number | null = null;
     private selectionBadgeRefreshQueued = false;
     private documentStatsUpdateTimer: number | null = null;
@@ -863,6 +858,9 @@ function createSectionMeterExtension(
       const summaries = summarizeReadingTimes(markdown, getSettings());
       this.summaries = summaries.sections;
       this.noteSummary = summaries.note;
+      this.analyzedDoc = view.state.doc;
+      this.completionTracker = new TargetCompletionTracker(summaries);
+      this.documentIdentity = getDocumentIdentity(view);
       cacheReadingTimes(view, summaries);
       this.decorations = this.buildDecorations(view);
 
@@ -870,7 +868,13 @@ function createSectionMeterExtension(
         this.mobileMeterEl = createMobileSectionMeterEl(
           getSettings().mobileMeterPosition,
           updateMobileMeterPosition,
-          openMobileTargetEditor
+          (scope, position) => {
+            if (view.state.doc !== this.analyzedDoc) {
+              new Notice("Statistics are updating. Please try again in a moment.");
+              return;
+            }
+            openMobileTargetEditor(view, scope, position);
+          }
         );
         view.dom.appendChild(this.mobileMeterEl);
         this.mobileMeterScrollHandler = () => this.scheduleMobileMeterUpdate(view);
@@ -881,7 +885,16 @@ function createSectionMeterExtension(
     }
 
     update(update: ViewUpdate) {
-      if (update.docChanged) {
+      const documentChangedIdentity = getDocumentIdentity(update.view) !== this.documentIdentity;
+      if (documentChangedIdentity) {
+        this.cancelDocumentStatsRefresh();
+        this.refreshDocumentStats(update.view);
+        this.documentStatsRefreshDeferred = false;
+        this.hasPendingStructuralHeadingChange = false;
+        this.decorations = this.buildDecorations(update.view);
+      }
+      if (update.docChanged && !documentChangedIdentity) {
+        this.completionTracker.mapPositions((position) => update.changes.mapPos(position, 1, MapMode.TrackAfter));
         // A heading badge belongs to a parsed heading, not merely to a document
         // position. Mapping it through a structural heading edit can briefly
         // place an old badge in ordinary text when a heading is deleted or
@@ -916,11 +929,7 @@ function createSectionMeterExtension(
         && this.documentStatsUpdateTimer === null;
       if (this.documentStatsRefreshQueued) {
         this.documentStatsRefreshQueued = false;
-        const markdown = update.state.doc.toString();
-        const summaries = summarizeReadingTimes(markdown, getSettings());
-        this.summaries = summaries.sections;
-        this.noteSummary = summaries.note;
-        cacheReadingTimes(update.view, summaries);
+        this.refreshDocumentStats(update.view);
         if (this.hasPendingStructuralHeadingChange
           || !this.selectionIsInsideHeading(update.view)) {
           shouldRebuildDecorations = true;
@@ -957,7 +966,7 @@ function createSectionMeterExtension(
       }
 
       if ((!update.docChanged && this.documentStatsUpdateTimer === null)
-        || update.viewportChanged) {
+        || update.viewportChanged || documentChangedIdentity) {
         this.scheduleMobileMeterUpdate(update.view);
       }
     }
@@ -1003,6 +1012,15 @@ function createSectionMeterExtension(
 
     private refreshDocumentStats(view: EditorView) {
       const summaries = summarizeReadingTimes(view.state.doc.toString(), getSettings());
+      this.analyzedDoc = view.state.doc;
+      const identity = getDocumentIdentity(view);
+      if (identity !== this.documentIdentity) {
+        this.completionTracker.reset(summaries);
+        this.documentIdentity = identity;
+      } else {
+        const reached = this.completionTracker.update(summaries);
+        if (reached.length > 0 && isActiveView(view)) onTargetsReached(view, reached);
+      }
       this.summaries = summaries.sections;
       this.noteSummary = summaries.note;
       cacheReadingTimes(view, summaries);
@@ -1048,7 +1066,7 @@ function createSectionMeterExtension(
       const selectionOverride = this.applySelectionBadgeOverride && statusBarStats.selection
         ? getHeadingSelectionOverride(view, this.summaries, statusBarStats.selection)
         : null;
-      updateStatusBar(statusBarStats);
+      if (isActiveView(view)) updateStatusBar(statusBarStats);
 
       if (!settings.showHeadingStats) {
         return builder.finish();
@@ -1093,11 +1111,19 @@ function createSectionMeterExtension(
       if (!this.mobileMeterEl) {
         return;
       }
+      this.mobileMeterEl.dataset.position = getSettings().mobileMeterPosition;
+      if (!isActiveView(view)) {
+        this.mobileMeterEl.classList.add("section-meter-mobile-current-section-hidden");
+        return;
+      }
 
       view.requestMeasure({
         key: this.mobileMeterMeasureKey,
         read: (measuredView) => getPositionAtVisibleViewportTop(measuredView),
-        write: (position) => this.updateMobileMeterAtPosition(position)
+        write: (position) => {
+          if (isActiveView(view)) this.updateMobileMeterAtPosition(position);
+          else this.mobileMeterEl?.classList.add("section-meter-mobile-current-section-hidden");
+        }
       });
     }
 
@@ -1120,7 +1146,8 @@ function createSectionMeterExtension(
       renderMobileSectionMeter(
         this.mobileMeterEl,
         target,
-        sectionSummary ? "section" : "note"
+        sectionSummary ? "section" : "note",
+        sectionSummary?.from ?? 0
       );
     }
   }
@@ -1157,14 +1184,10 @@ function getPositionAtVisibleViewportTop(view: EditorView): number {
 function createMobileSectionMeterEl(
   position: SectionMeterSettings["mobileMeterPosition"],
   updatePosition: (position: SectionMeterSettings["mobileMeterPosition"]) => void,
-  openTargetEditor: (scope: WritingTargetScope) => void
+  openTargetEditor: (scope: WritingTargetScope, position: number) => void
 ): HTMLElement {
-  activeDocument
-    .querySelectorAll(".section-meter-mobile-current-section")
-    .forEach((meter) => meter.remove());
-
   const meterEl = createDiv();
-  meterEl.className = "section-meter-mobile-current-section";
+  meterEl.className = "section-meter-mobile-current-section section-meter-mobile-current-section-hidden";
   meterEl.dataset.displayMode = "percentage";
   meterEl.dataset.position = position;
   meterEl.setAttribute("role", "group");
@@ -1173,19 +1196,8 @@ function createMobileSectionMeterEl(
     "Current section statistics and writing target. Drag vertically to move the meter."
   );
   meterEl.setAttribute("aria-live", "off");
-  addMobileMeterInteractionHandlers(meterEl, updatePosition, openTargetEditor);
-  return meterEl;
-}
-
-function renderMobileSectionMeter(
-  meterEl: HTMLElement,
-  target: WritingTargetProgress,
-  targetScope: WritingTargetScope
-): void {
-  const currentEl = createSpan();
-  currentEl.className = "section-meter-mobile-current-section-current";
-  currentEl.textContent = formatMobileTargetCurrentValue(target);
-
+  // Keep these controls stable: focus changes can refresh the meter between
+  // pointer-down and click. Replacing the pressed button would lose that tap.
   const targetEl = createSpan();
   targetEl.className = "section-meter-mobile-current-section-target";
   targetEl.dataset.mobileMeterAction = "edit-target";
@@ -1193,36 +1205,56 @@ function renderMobileSectionMeter(
   targetEl.tabIndex = 0;
   targetEl.setAttribute("aria-label", "Edit writing target.");
 
+  const currentEl = createSpan();
+  currentEl.className = "section-meter-mobile-current-section-current";
   const progressEl = createSpan();
-  progressEl.className = [
-    "section-meter-mobile-current-section-progress",
-    getTargetProgressStateClass(target)
-  ].join(" ");
+  progressEl.className = "section-meter-mobile-current-section-progress";
   progressEl.setAttribute("aria-hidden", "true");
-
   const progressFillEl = createSpan();
   progressFillEl.className = "section-meter-mobile-current-section-progress-fill";
-  progressFillEl.style.width = `${Math.min(100, Math.max(0, target.percent))}%`;
-  progressEl.appendChild(progressFillEl);
+  progressEl.append(progressFillEl);
+  targetEl.append(currentEl, progressEl);
 
   const labelEl = createSpan();
   labelEl.className = "section-meter-mobile-current-section-label";
   labelEl.dataset.mobileMeterAction = "toggle-target-display";
   labelEl.setAttribute("role", "button");
   labelEl.tabIndex = 0;
-
   const percentageEl = createSpan();
   percentageEl.className = "section-meter-mobile-current-section-percentage";
-  percentageEl.textContent = `${Math.round(target.percent)}%`;
-
   const countEl = createSpan();
   countEl.className = "section-meter-mobile-current-section-count";
+  labelEl.append(percentageEl, countEl);
+  meterEl.append(targetEl, labelEl);
+  addMobileMeterInteractionHandlers(meterEl, updatePosition, openTargetEditor);
+  return meterEl;
+}
+
+function renderMobileSectionMeter(
+  meterEl: HTMLElement,
+  target: WritingTargetProgress,
+  targetScope: WritingTargetScope,
+  targetPosition: number
+): void {
+  const currentEl = meterEl.querySelector<HTMLElement>(".section-meter-mobile-current-section-current")!;
+  currentEl.textContent = formatMobileTargetCurrentValue(target);
+
+  const progressEl = meterEl.querySelector<HTMLElement>(".section-meter-mobile-current-section-progress")!;
+  progressEl.className = [
+    "section-meter-mobile-current-section-progress",
+    getTargetProgressStateClass(target)
+  ].join(" ");
+  const progressFillEl = meterEl.querySelector<HTMLElement>(".section-meter-mobile-current-section-progress-fill")!;
+  progressFillEl.style.width = `${Math.min(100, Math.max(0, target.percent))}%`;
+
+  const percentageEl = meterEl.querySelector<HTMLElement>(".section-meter-mobile-current-section-percentage")!;
+  percentageEl.textContent = `${Math.round(target.percent)}%`;
+
+  const countEl = meterEl.querySelector<HTMLElement>(".section-meter-mobile-current-section-count")!;
   countEl.textContent = formatWritingTargetCountLabel(target);
 
-  labelEl.append(percentageEl, countEl);
-  targetEl.append(currentEl, progressEl);
-  meterEl.replaceChildren(targetEl, labelEl);
   meterEl.dataset.targetScope = targetScope;
+  meterEl.dataset.targetPosition = String(targetPosition);
   meterEl.dataset.percentageLabel = percentageEl.textContent;
   meterEl.dataset.countLabel = countEl.textContent;
   updateMobileTargetAccessibilityLabel(meterEl);
@@ -1259,7 +1291,7 @@ function updateMobileTargetAccessibilityLabel(meterEl: HTMLElement): void {
 function addMobileMeterInteractionHandlers(
   meterEl: HTMLElement,
   updatePosition: (position: SectionMeterSettings["mobileMeterPosition"]) => void,
-  openTargetEditor: (scope: WritingTargetScope) => void
+  openTargetEditor: (scope: WritingTargetScope, position: number) => void
 ): void {
   const dragThreshold = 10;
   let activePointerId: number | null = null;
@@ -1373,7 +1405,7 @@ function addMobileMeterInteractionHandlers(
 
     if (actionEl?.dataset.mobileMeterAction === "edit-target") {
       const scope = meterEl.dataset.targetScope === "note" ? "note" : "section";
-      openTargetEditor(scope);
+      openTargetEditor(scope, Number(meterEl.dataset.targetPosition ?? 0));
     }
   };
 
@@ -1423,11 +1455,8 @@ class ReadingTimeWidget extends WidgetType {
   updateDOM(dom: HTMLElement): boolean {
     const replacement = this.toDOM();
     dom.className = replacement.className;
-    for (const attribute of Array.from(dom.attributes)) {
-      if (!replacement.hasAttribute(attribute.name)) {
-        dom.removeAttribute(attribute.name);
-      }
-    }
+    // Only replace our attributes. CodeMirror owns other attributes on reused
+    // widget DOM; removing them can make the badge part of the editable text.
     for (const attribute of Array.from(replacement.attributes)) {
       dom.setAttribute(attribute.name, attribute.value);
     }
@@ -1478,7 +1507,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
         () => this.plugin.settings.previewSticky,
         async (value) => {
           this.plugin.settings.previewSticky = value;
-          await this.plugin.saveSettings();
+          await this.plugin.saveSettings({ refreshStats: false });
           this.updatePreviewSticky();
         }
       ),
@@ -1530,7 +1559,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
             this.plugin.settings.showWords = value;
             await this.plugin.saveSettings();
           },
-          { updatePreviewAfterChange: true }
+          { updateAfterChange: true }
         ),
         this.createToggleSetting(
           "Reading time",
@@ -1540,7 +1569,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
             this.plugin.settings.showTiming = value;
             await this.plugin.saveSettings();
           },
-          { updatePreviewAfterChange: true }
+          { updateAfterChange: true }
         ),
         this.createToggleSetting(
           "Character count",
@@ -1710,7 +1739,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
             this.plugin.settings.showStatusBarWords = value;
             await this.plugin.saveSettings();
           },
-          { updatePreviewAfterChange: true }
+          { updateAfterChange: true }
         ),
         this.createToggleSetting(
           "Reading time",
@@ -1720,7 +1749,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
             this.plugin.settings.showStatusBarTiming = value;
             await this.plugin.saveSettings();
           },
-          { updatePreviewAfterChange: true }
+          { updateAfterChange: true }
         ),
         this.createToggleSetting(
           "Character count",
@@ -1762,7 +1791,8 @@ class SectionMeterSettingTab extends PluginSettingTab {
           async (value) => {
             this.plugin.settings.mobileMeterPosition =
               normalizeMobileMeterPosition(value);
-            await this.plugin.saveSettings();
+            await this.plugin.saveSettings({ refreshStats: false });
+            this.plugin.refreshMobileMeterPlacement();
           },
           { visible: () => this.plugin.settings.mobileStickySectionMeter }
         )
@@ -1801,7 +1831,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
           () => this.plugin.settings.targetPresets,
           async (value) => {
             this.plugin.settings.targetPresets = value;
-            await this.plugin.saveSettings();
+            await this.plugin.saveSettings({ refreshStats: false });
           }
         ),
         this.createToggleSetting(
@@ -1810,7 +1840,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
           () => this.plugin.settings.notifyOnTargetReached,
           async (value) => {
             this.plugin.settings.notifyOnTargetReached = value;
-            await this.plugin.saveSettings();
+            await this.plugin.saveSettings({ refreshStats: false });
           }
         ),
         this.createSliderSetting(
@@ -2492,6 +2522,23 @@ function formatConfiguredStats(
   });
 }
 
+function getReadingTimeSettingsKey(settings: SectionMeterSettings): string {
+  // These preferences change controls/placement, not parsed statistics or labels.
+  return JSON.stringify({ ...settings, previewSticky: null, mobileMeterPosition: null,
+    targetPresets: null, notifyOnTargetReached: null });
+}
+
+function removeTitleBadge(container: HTMLElement): void {
+  container.querySelectorAll(".section-meter-title-badge").forEach((badge) => badge.remove());
+  container.querySelectorAll<HTMLElement>(".section-meter-title-row")
+    .forEach((row) => row.removeClass("section-meter-title-row"));
+  container.querySelectorAll<HTMLElement>(".section-meter-title-group").forEach((group) => {
+    const title = group.querySelector<HTMLElement>(":scope > .inline-title");
+    if (title && group.parentElement) group.parentElement.insertBefore(title, group);
+    group.remove();
+  });
+}
+
 function createReadingTimeBadge(
   label: string,
   wordCount: number,
@@ -2523,6 +2570,7 @@ function createReadingTimeBadge(
   );
   badge.setAttribute("title", scopeLabel);
   badge.setAttribute("spellcheck", "false");
+  badge.setAttribute("contenteditable", "false");
   badge.addEventListener("beforeinput", (event) => event.preventDefault());
   badge.addEventListener("keydown", preventBadgeTextEdit);
   badge.addEventListener("mousedown", stopEditorMouseHandling);

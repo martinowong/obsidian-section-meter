@@ -1,6 +1,6 @@
 {
   "name": "obsidian-section-writing-stats",
-  "version": "1.4.4",
+  "version": "1.4.5",
   "description": "Show live word counts, character counts, reading time, and writing-goal progress for every section in Obsidian.",
   "main": "main.js",
   "scripts": {
@@ -40,11 +40,13 @@
   "devDependencies": {
     "@codemirror/state": "6.5.0",
     "@codemirror/view": "^6.38.2",
+    "@types/jsdom": "^21.1.7",
     "@types/node": "^22.15.29",
     "@typescript-eslint/parser": "^8.61.1",
     "esbuild": "^0.25.5",
     "eslint": "^9.39.4",
     "eslint-plugin-obsidianmd": "^0.3.0",
+    "jsdom": "^26.1.0",
     "obsidian": "^1.13.0",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"

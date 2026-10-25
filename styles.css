@@ -153,8 +153,14 @@ body.section-meter-classic-target-colors {
   content: "✓\00a0";
 }
 
+/* Named parts, not `*`: a universal selector makes every editor element a candidate. */
 .cm-content .section-meter-badge,
-.cm-content .section-meter-badge * {
+.cm-content .section-meter-badge-label,
+.cm-content .section-meter-target-group,
+.cm-content .section-meter-target-caption,
+.cm-content .section-meter-target-label,
+.cm-content .section-meter-target-progress,
+.cm-content .section-meter-target-progress-fill {
   user-select: text;
   -webkit-user-select: text;
 }

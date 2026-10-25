@@ -688,7 +688,9 @@ describe("editor badge integration", () => {
       .classList.contains("section-meter-target-complete");
     expect(labelState(reached)).toBe(true);
     expect(labelState(inProgress)).toBe(false);
-    expect(readFileSync("styles.css", "utf8")).not.toMatch(/:has\(/);
+    const styles = readFileSync("styles.css", "utf8");
+    expect(styles).not.toMatch(/:has\(/);
+    expect(styles).not.toMatch(/(^|[\s,>+~])\*\s*[,{]/m);
   });
 
   it("opens the target on the first tap even when pressing the meter changes editor focus", async () => {

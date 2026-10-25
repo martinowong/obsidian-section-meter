@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.1
+
+- **Faster counting:** notes with writing targets now count up to 30% faster, with identical results.
+- **Smoother selections:** selecting large passages no longer recounts on every pointer movement; the final numbers are always exact.
+- **Less repeated work:** the note-title badge only redraws when its numbers change.
+- **Smoother progress bars:** bars slide instead of resizing, which is easier on phones.
+- **Bugfix:** removed CSS selectors Obsidian's plugin review flags for slowing down style updates.
+
 ## 1.5.0
 
 - **Stats in Reading view:** heading and whole-note badges now appear in Reading view as well as the editor, using the same display and counting settings. Tap a badge's statistics to copy them, or its target to edit or remove it, in either view.

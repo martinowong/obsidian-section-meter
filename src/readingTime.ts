@@ -663,10 +663,16 @@ function normalizeCompactLabel(value: string, fallback: string): string {
 function stripMarkdownToReadableText(markdown: string, isWholeDocument = true): string {
   markdown = withoutMarkdownComments(markdown, false, isWholeDocument);
   if (canUsePlainTextFastPath(markdown)) {
-    return markdown
-      .replace(/^\s{0,3}#{1,6}\s+/gm, "")
-      .replace(/\s+#+\s*$/gm, "")
-      .replace(/#/g, "");
+    return stripPlainText(markdown);
+  }
+
+  // Target lines are common in otherwise plain notes but rule out the fast path.
+  // The full path removes them too, so drop them and check again.
+  if (/^ {0,3}target/im.test(markdown)) {
+    const withoutTargets = removeWritingTargetLines(markdown);
+    if (withoutTargets !== markdown && canUsePlainTextFastPath(withoutTargets)) {
+      return stripPlainText(withoutTargets);
+    }
   }
 
   let text = isWholeDocument ? removeFrontmatter(markdown) : markdown;
@@ -692,6 +698,13 @@ function stripMarkdownToReadableText(markdown: string, isWholeDocument = true): 
   text = text.replace(/[=#{}[\]]/g, "");
   text = text.replace(/<\/?[^>]+>/g, "");
   return text;
+}
+
+function stripPlainText(markdown: string): string {
+  return markdown
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/\s+#+\s*$/gm, "")
+    .replace(/#/g, "");
 }
 
 function canUsePlainTextFastPath(markdown: string): boolean {

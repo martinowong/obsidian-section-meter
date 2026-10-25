@@ -564,6 +564,23 @@ describe("parseWritingTargetLine", () => {
   });
 });
 
+describe("plain notes with target lines", () => {
+  it("count the same as before when target lines are removed ahead of the plain-text path", () => {
+    // Expected values come from the full Markdown path, before this optimization.
+    const mixed = summarizeReadingTimes(
+      "Target: 6 words\n# Draft ##\nTarget: 4 words\none two three\nTarget: 10 words today\n## Scene\ntarget 2w\r\nfour five",
+      settings
+    );
+    expect([mixed.note.wordCount, mixed.note.characterCount]).toEqual([11, 58]);
+    expect(mixed.sections.map((section) => [section.title, section.wordCount, section.characterCount]))
+      .toEqual([["Draft", 10, 52], ["Scene", 2, 9]]);
+
+    const prose = summarizeReadingTimes("Target: 3 words\n# Notes\nTargets help writers focus.", settings);
+    expect([prose.note.wordCount, prose.note.characterCount]).toEqual([5, 33]);
+    expect([prose.sections[0].wordCount, prose.sections[0].characterCount]).toEqual([4, 27]);
+  });
+});
+
 describe("writing target progress", () => {
   it("uses alternate declarations for note and section targets with unchanged ownership", () => {
     const markdown = "target 100w\n# Draft\ntarget 10w\none two\n## Child\nTarget: 20 chars\nabc";

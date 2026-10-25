@@ -34,6 +34,8 @@ export interface SectionMeterSettings {
   targetProgressLabelStyle: TargetProgressLabelStyle;
   targetPresets: string;
   notifyOnTargetReached: boolean;
+  classicTargetColors: boolean;
+  showTargetChips: boolean;
   mobileStickySectionMeter: boolean;
   mobileMeterPosition: MobileMeterPosition;
   previewSticky: boolean;
@@ -126,7 +128,7 @@ interface HeadingCandidate {
   contentFrom: number;
 }
 
-interface WritingTargetLine extends WritingTarget {
+export interface WritingTargetLine extends WritingTarget {
   line: number;
   from: number;
   to: number;
@@ -390,6 +392,9 @@ export function formatWritingTargetLine(target: WritingTarget): string {
 
   const minutes = Math.floor(target.targetValue / 60);
   const seconds = target.targetValue % 60;
+  if (minutes === 0) {
+    return `Target: ${seconds}s`;
+  }
   return seconds > 0
     ? `Target: ${minutes}m ${seconds}s`
     : `Target: ${minutes}m`;
@@ -701,7 +706,7 @@ function canUsePlainTextFastPath(markdown: string): boolean {
     && !/^ {0,3}-{3,}[ \t]*$/m.test(markdown);
 }
 
-function parseWritingTargetLines(markdown: string): WritingTargetLine[] {
+export function parseWritingTargetLines(markdown: string): WritingTargetLine[] {
   const lines = splitLines(withoutMarkdownComments(markdown, true));
   const targets: WritingTargetLine[] = [];
   let inFence: { marker: string; length: number } | null = null;
@@ -930,13 +935,18 @@ function formatWritingTargetProgressLabel(
   }
 
   if (labelStyle === "remaining") {
-    const remaining = Math.max(0, targetValue - currentValue);
-    if (metric === "reading-time") {
-      return remaining === 0 ? "Reached" : `${formatSeconds(remaining)} left`;
+    if (currentValue === targetValue) {
+      return "Reached";
     }
 
-    const unit = metric === "words" ? "words" : "characters";
-    return remaining === 0 ? "Reached" : `${remaining} ${unit} left`;
+    const difference = Math.abs(targetValue - currentValue);
+    const direction = currentValue < targetValue ? "left" : "over";
+    if (metric === "reading-time") {
+      return `${formatSeconds(difference)} ${direction}`;
+    }
+
+    const unit = metric === "words" ? "word" : "character";
+    return `${difference} ${unit}${difference === 1 ? "" : "s"} ${direction}`;
   }
 
   if (metric === "reading-time") {
@@ -966,6 +976,14 @@ function parseCountWritingTarget(value: string): WritingTarget | null {
 
 function parseReadingTimeWritingTarget(value: string): WritingTarget | null {
   const normalized = value.toLowerCase().trim();
+  const secondsOnly = /^(\d+)[ \t]*(?:s|sec|secs|second|seconds)$/.exec(normalized);
+  if (secondsOnly) {
+    const targetValue = Number(secondsOnly[1]);
+    return Number.isSafeInteger(targetValue) && targetValue > 0
+      ? { metric: "reading-time", targetValue }
+      : null;
+  }
+
   const match = /^(\d+)[ \t]*(?:m|min|mins|minute|minutes)(?:[ \t]+(\d+)[ \t]*(?:s|sec|secs|second|seconds))?$/.exec(normalized);
   if (!match) {
     return null;
@@ -975,6 +993,7 @@ function parseReadingTimeWritingTarget(value: string): WritingTarget | null {
   const seconds = match[2] ? Number(match[2]) : 0;
   const targetValue = (minutes * 60) + seconds;
 
+  // With minutes, seconds must be 0-59 so "1m 75s" is not silently accepted.
   return seconds < 60 && Number.isSafeInteger(targetValue) && targetValue > 0
     ? {
       metric: "reading-time",

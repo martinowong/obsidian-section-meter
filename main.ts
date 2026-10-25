@@ -1,4 +1,4 @@
-import { Compartment, Extension, MapMode, RangeSetBuilder, Text } from "@codemirror/state";
+import { Compartment, EditorState, Extension, MapMode, RangeSetBuilder, Text } from "@codemirror/state";
 import {
   Decoration,
   DecorationSet,
@@ -18,7 +18,9 @@ import {
   Plugin,
   PluginSettingTab,
   Setting,
-  TextComponent
+  TextComponent,
+  editorLivePreviewField,
+  setIcon
 } from "obsidian";
 import type {
   SettingDefinition,
@@ -34,16 +36,19 @@ import {
   WritingTarget,
   WritingTargetMetric,
   WritingTargetProgress,
+  WritingTargetLine,
   WritingTargetScope,
   createWritingTargetTextEdit,
   formatReadingTime,
   formatSeconds,
   formatWritingTargetCountLabel,
+  formatWritingTargetLine,
   getNextTargetProgressLabelStyle,
   getActiveSectionTargetAtPosition,
   getActiveSectionTargetSummaryAtPosition,
   estimateSeconds,
   parseWritingTargetLine,
+  parseWritingTargetLines,
   shouldShowSummary,
   summarizeNoteReadingTime,
   summarizeReadingTimes,
@@ -84,10 +89,13 @@ const DEFAULT_SETTINGS: SectionMeterSettings = {
   targetProgressLabelStyle: "count",
   targetPresets: "250 words, 500 words, 1000 words, 10m",
   notifyOnTargetReached: false,
+  classicTargetColors: false,
+  showTargetChips: true,
   mobileStickySectionMeter: false,
   mobileMeterPosition: "bottom",
   previewSticky: true
 };
+const CLASSIC_TARGET_COLORS_CLASS = "section-meter-classic-target-colors";
 const MIN_WORDS_PER_MINUTE = 100;
 const MAX_WORDS_PER_MINUTE = 500;
 const WORDS_PER_MINUTE_STEP = 10;
@@ -98,6 +106,8 @@ const DOCUMENT_STATS_UPDATE_DELAY_MS = 120;
 const SELECTION_BADGE_UPDATE_DELAY_MS = 220;
 const TITLE_BADGE_UPDATE_DELAY_MS = DOCUMENT_STATS_UPDATE_DELAY_MS + 40;
 const PREVIEW_WORD_COUNT = 640;
+const PREVIEW_TARGET_WORD_COUNT = 163;
+const PREVIEW_TARGET_WORDS = 250;
 const PREVIEW_CHARACTER_COUNT = 3200;
 
 type StoredSettings = Partial<Record<keyof SectionMeterSettings, unknown>> & {
@@ -111,6 +121,7 @@ export default class SectionMeterPlugin extends Plugin {
   private lastStatusBarRenderKey = "hidden";
   private titleBadgeUpdateTimers = new Map<MarkdownView, number>();
   private unloaded = false;
+  private targetColorDocuments = new Set<Document>();
   private readingViewChildren = new Set<ReadingViewStats>();
   private readingViewChunks = new WeakMap<HTMLElement, ReadingViewStats>();
   private readingViewContent = new WeakMap<MarkdownView, { markdown: string; settingsKey: string }>();
@@ -129,6 +140,7 @@ export default class SectionMeterPlugin extends Plugin {
   async onload() {
     this.unloaded = false;
     await this.loadSettings();
+    this.applyTargetColorStyle(activeDocument);
     this.statusBarItem = this.addStatusBarItem();
     this.statusBarItem.classList.add("section-meter-status-bar");
     this.clearStatusBar();
@@ -190,6 +202,16 @@ export default class SectionMeterPlugin extends Plugin {
       if (relevant) this.scheduleReadingViewRefresh();
     }));
     this.registerEvent(
+      this.app.workspace.on("window-open", (workspaceWindow) => {
+        this.applyTargetColorStyle(workspaceWindow.doc);
+      })
+    );
+    this.registerEvent(
+      this.app.workspace.on("window-close", (workspaceWindow) => {
+        this.targetColorDocuments.delete(workspaceWindow.doc);
+      })
+    );
+    this.registerEvent(
       this.app.workspace.on("layout-change", () => {
         this.refreshTitleBadges();
         this.refreshStatusBarFromActiveView();
@@ -237,6 +259,8 @@ export default class SectionMeterPlugin extends Plugin {
       if (leaf.view instanceof MarkdownView) removeTitleBadge(leaf.view.containerEl);
     });
     this.clearStatusBar();
+    this.applyTargetColorStyle();
+    this.targetColorDocuments.clear();
   }
 
   async loadSettings() {
@@ -247,11 +271,23 @@ export default class SectionMeterPlugin extends Plugin {
   async saveSettings({ refreshStats = true }: { refreshStats?: boolean } = {}) {
     this.settings = normalizeSettings(this.settings);
     await this.saveData(this.settings);
+    this.applyTargetColorStyle();
     if (this.unloaded || !refreshStats) return;
     this.refreshEditorExtensions();
     this.refreshReadingViewStats();
     this.refreshTitleBadges();
     this.refreshStatusBarFromActiveView();
+  }
+
+  /** Each window has its own body, so popouts need the colour class too. */
+  private applyTargetColorStyle(doc?: Document): void {
+    if (doc) this.targetColorDocuments.add(doc);
+    for (const targetDocument of this.targetColorDocuments) {
+      targetDocument.body.classList.toggle(
+        CLASSIC_TARGET_COLORS_CLASS,
+        !this.unloaded && this.settings.classicTargetColors
+      );
+    }
   }
 
   private updateMobileMeterPosition(position: SectionMeterSettings["mobileMeterPosition"]): void {
@@ -829,8 +865,9 @@ class WritingTargetModal extends Modal {
         return;
       }
 
-      amountInput.setPlaceholder(metric === "reading-time" ? "3m or 2m 30s" : "250");
-      amountInput.inputEl.inputMode = metric === "reading-time" ? "text" : "numeric";
+      amountInput.setPlaceholder(metric === "reading-time" ? "3m, 2m 30s, or 45s" : "250");
+      // Text keyboards on mobile, so units such as 30s or 250w can be typed.
+      amountInput.inputEl.inputMode = "text";
     };
 
     new Setting(formEl)
@@ -850,31 +887,28 @@ class WritingTargetModal extends Modal {
 
     new Setting(formEl)
       .setName("Target")
-      .setDesc("Enter a positive number, or a time such as 3m or 2m 30s.")
+      .setDesc("Enter a number for the measure above, or type a unit such as 250w, 1800 chars, 3m, or 45s.")
       .addText((text) => {
         amountInput = text;
         text.setValue(formatWritingTargetInputValue(this.existingTarget));
         updateAmountInput();
+        text.onChange((value) => {
+          // Follow a unit as it is typed, so the measure always matches what will be saved.
+          const typed = parseWritingTargetLine(`Target: ${value.trim()}`);
+          if (typed && typed.metric !== metric) {
+            metric = typed.metric;
+            metricDropdown?.setValue(metric);
+            updateAmountInput();
+          }
+        });
       });
 
-    if (this.presets.length > 0) {
-      const presetEl = formEl.createDiv({ cls: "section-meter-target-presets" });
-      presetEl.createDiv({ text: "Quick targets", cls: "setting-item-name" });
-      const buttonsEl = presetEl.createDiv({ cls: "section-meter-target-preset-buttons" });
-      for (const preset of this.presets) {
-        const button = buttonsEl.createEl("button", {
-          text: formatWritingTargetPreset(preset),
-          type: "button",
-          cls: "section-meter-target-preset"
-        });
-        button.addEventListener("click", () => {
-          metric = preset.metric;
-          metricDropdown?.setValue(metric);
-          amountInput?.setValue(formatWritingTargetInputValue(preset));
-          updateAmountInput();
-        });
-      }
-    }
+    createWritingTargetPresetButtons(formEl, this.presets, (preset) => {
+      metric = preset.metric;
+      metricDropdown?.setValue(metric);
+      amountInput?.setValue(formatWritingTargetInputValue(preset));
+      updateAmountInput();
+    });
 
     new Setting(formEl)
       .addButton((button) => {
@@ -892,7 +926,7 @@ class WritingTargetModal extends Modal {
 
       const target = parseWritingTargetInput(metric, amountInput.getValue());
       if (!target) {
-        new Notice("Enter a valid positive writing target.");
+        new Notice("Enter a target such as 250, 250w, 1800 chars, 3m, or 45s.");
         amountInput.inputEl.focus();
         return;
       }
@@ -909,7 +943,33 @@ class WritingTargetModal extends Modal {
   }
 }
 
-function parseWritingTargetInput(
+/** Quick-target buttons for the target dialog. */
+export function createWritingTargetPresetButtons(
+  parentEl: HTMLElement,
+  presets: WritingTarget[],
+  onPick: (preset: WritingTarget) => void
+): void {
+  if (presets.length === 0) {
+    return;
+  }
+
+  const presetEl = parentEl.createDiv({ cls: "section-meter-target-presets" });
+  presetEl.createDiv({ text: "Quick targets", cls: "setting-item-name" });
+  const buttonsEl = presetEl.createDiv({ cls: "section-meter-target-preset-buttons" });
+  for (const preset of presets) {
+    // Obsidian's createEl ignores `type` on buttons. Without the attribute a
+    // button submits its form, and pressing Enter would pick the first preset.
+    const button = buttonsEl.createEl("button", {
+      text: formatWritingTargetPreset(preset),
+      cls: "section-meter-target-preset",
+      attr: { type: "button" }
+    });
+    button.addEventListener("click", () => onPick(preset));
+  }
+}
+
+/** A unit typed in the dialog wins; a bare number uses the selected measure. */
+export function parseWritingTargetInput(
   metric: WritingTargetMetric,
   rawValue: string
 ): WritingTarget | null {
@@ -918,9 +978,17 @@ function parseWritingTargetInput(
     return null;
   }
 
+  const typed = parseWritingTargetLine(`Target: ${value}`);
+  if (typed) {
+    return typed;
+  }
+
+  if (!/^[\d,]+$/.test(value)) {
+    return null;
+  }
+
   if (metric === "reading-time") {
-    const normalizedValue = /^\d+$/.test(value) ? `${value}m` : value;
-    return parseWritingTargetLine(`Target: ${normalizedValue}`);
+    return parseWritingTargetLine(`Target: ${value}m`);
   }
 
   const unit = metric === "words" ? "words" : "characters";
@@ -938,6 +1006,9 @@ function formatWritingTargetInputValue(target: WritingTarget | null): string {
 
   const minutes = Math.floor(target.targetValue / 60);
   const seconds = target.targetValue % 60;
+  if (minutes === 0) {
+    return `${seconds}s`;
+  }
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
@@ -1308,9 +1379,134 @@ export function createSectionMeterExtension(
     }
   }
 
-  return ViewPlugin.fromClass(SectionMeterViewPlugin, {
-    decorations: (plugin) => plugin.decorations
-  });
+  return [
+    ViewPlugin.fromClass(SectionMeterViewPlugin, {
+      decorations: (plugin) => plugin.decorations
+    }),
+    getSettings().showTargetChips ? targetLineChipExtension : []
+  ];
+}
+
+/**
+ * Shows valid `Target:` lines as chips in Live Preview. Only the display
+ * changes: the Markdown keeps the typed line, which reappears for editing
+ * whenever the cursor or a selection touches it.
+ */
+class TargetLineChips implements PluginValue {
+  decorations: DecorationSet;
+  private targetLines: WritingTargetLine[];
+  private reparseTimer: number | null = null;
+
+  constructor(view: EditorView) {
+    this.targetLines = parseWritingTargetLines(view.state.doc.toString());
+    this.decorations = buildTargetLineChips(view, this.targetLines);
+  }
+
+  update(update: ViewUpdate) {
+    const livePreviewChanged = isLivePreview(update.startState) !== isLivePreview(update.state);
+    if (update.docChanged) {
+      // Drop lines an edit touched until the debounced reparse validates them.
+      this.targetLines = this.targetLines
+        .filter((line) => !update.changes.touchesRange(line.from, line.to))
+        .map((line) => ({
+          ...line,
+          from: update.changes.mapPos(line.from),
+          to: update.changes.mapPos(line.to)
+        }));
+      this.queueReparse(update.view);
+    }
+
+    if (update.docChanged || update.selectionSet || update.viewportChanged || livePreviewChanged) {
+      this.decorations = buildTargetLineChips(update.view, this.targetLines);
+    }
+  }
+
+  destroy() {
+    if (this.reparseTimer !== null) window.clearTimeout(this.reparseTimer);
+    this.reparseTimer = null;
+  }
+
+  private queueReparse(view: EditorView) {
+    if (this.reparseTimer !== null) window.clearTimeout(this.reparseTimer);
+    this.reparseTimer = window.setTimeout(() => {
+      this.reparseTimer = null;
+      this.targetLines = parseWritingTargetLines(view.state.doc.toString());
+      this.decorations = buildTargetLineChips(view, this.targetLines);
+      view.dispatch({});
+    }, DOCUMENT_STATS_UPDATE_DELAY_MS);
+  }
+}
+
+const targetLineChipExtension = ViewPlugin.fromClass(TargetLineChips, {
+  decorations: (plugin) => plugin.decorations
+});
+
+function isLivePreview(state: EditorState): boolean {
+  return state.field(editorLivePreviewField, false) ?? false;
+}
+
+function buildTargetLineChips(view: EditorView, targetLines: WritingTargetLine[]): DecorationSet {
+  if (!isLivePreview(view.state)) {
+    return Decoration.none;
+  }
+
+  const builder = new RangeSetBuilder<Decoration>();
+  const { ranges } = view.state.selection;
+  for (const line of targetLines) {
+    const isBeingEdited = ranges.some((range) => range.from <= line.to && range.to >= line.from);
+    const isVisible = view.visibleRanges.some((range) => range.from <= line.to && range.to >= line.from);
+    if (line.to > line.from && !isBeingEdited && isVisible) {
+      builder.add(line.from, line.to, Decoration.replace({ widget: new TargetLineChipWidget(line) }));
+    }
+  }
+  return builder.finish();
+}
+
+class TargetLineChipWidget extends WidgetType {
+  private readonly value: string;
+
+  constructor(target: WritingTarget) {
+    super();
+    const amount = formatWritingTargetLine(target).replace(/^Target: /, "");
+    this.value = target.metric === "reading-time" ? `${amount} read` : amount;
+  }
+
+  eq(other: TargetLineChipWidget): boolean {
+    return this.value === other.value;
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const chip = createSpan();
+    chip.className = "section-meter-target-chip";
+    chip.setAttribute("role", "button");
+    chip.setAttribute("aria-label", `Writing target: ${this.value}. Click to edit the target line.`);
+    chip.setAttribute("title", "Click to edit");
+
+    const iconEl = createSpan();
+    iconEl.className = "section-meter-target-chip-icon";
+    setIcon(iconEl, "target");
+    const captionEl = createSpan();
+    captionEl.className = "section-meter-target-chip-caption";
+    captionEl.textContent = "Target";
+    const valueEl = createSpan();
+    valueEl.className = "section-meter-target-chip-value";
+    valueEl.textContent = this.value;
+    chip.append(iconEl, captionEl, valueEl);
+
+    // Reveal the typed line by placing the cursor at its end.
+    chip.addEventListener("mousedown", (event) => event.preventDefault());
+    chip.addEventListener("click", (event) => {
+      event.preventDefault();
+      const lineEnd = view.state.doc.lineAt(view.posAtDOM(chip)).to;
+      view.dispatch({ selection: { anchor: lineEnd } });
+      view.focus();
+    });
+    return chip;
+  }
+
+  ignoreEvent(): boolean {
+    return true;
+  }
 }
 
 function getDocumentChanges(update: ViewUpdate) {
@@ -1654,31 +1850,67 @@ class ReadingTimeWidget extends WidgetType {
 class SectionMeterSettingTab extends PluginSettingTab {
   private previewEl: HTMLElement | null = null;
   private badgePreviewValueEl: HTMLElement | null = null;
+  private targetPreviewSlotEl: HTMLElement | null = null;
   private statusBarPreviewContentEl: HTMLElement | null = null;
+  private previewResizeObserver: ResizeObserver | null = null;
+  private previewScrollEl: HTMLElement | null = null;
+  private previewHeight: number | null = null;
 
   constructor(app: App, private readonly plugin: SectionMeterPlugin) {
     super(app, plugin);
   }
 
+  hide(): void {
+    super.hide();
+    this.previewResizeObserver?.disconnect();
+    this.previewResizeObserver = null;
+    this.previewScrollEl?.classList.remove("section-meter-settings-scroller");
+    this.previewScrollEl = null;
+    this.previewHeight = null;
+  }
+
+  /**
+   * The pinned preview's labels may wrap as settings change. Scroll by the
+   * same amount the preview grows or shrinks, so the row being changed stays
+   * under the pointer. Browser scroll anchoring is disabled to avoid a double
+   * adjustment.
+   */
+  private keepSettingsStillWhilePreviewResizes(previewEl: HTMLElement): void {
+    this.previewResizeObserver?.disconnect();
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    // The preview may not be attached yet, so find the scroller on first resize.
+    this.previewResizeObserver = new ResizeObserver(() => {
+      if (!previewEl.isConnected) return;
+      if (!this.previewScrollEl?.isConnected || !this.previewScrollEl.contains(previewEl)) {
+        this.previewScrollEl?.classList.remove("section-meter-settings-scroller");
+        this.previewScrollEl = findScrollContainer(previewEl);
+        this.previewScrollEl?.classList.add("section-meter-settings-scroller");
+      }
+      const scrollEl = this.previewScrollEl;
+      if (!scrollEl) return;
+      const bounds = previewEl.getBoundingClientRect();
+      const change = this.previewHeight === null ? 0 : bounds.height - this.previewHeight;
+      this.previewHeight = bounds.height;
+      const previewIsAboveView = bounds.bottom <= scrollEl.getBoundingClientRect().top;
+      if (change !== 0 && (this.plugin.settings.previewSticky || previewIsAboveView)) {
+        scrollEl.scrollTop += change;
+      }
+    });
+    this.previewResizeObserver.observe(previewEl);
+  }
+
   getSettingDefinitions(): SettingDefinitionItem[] {
     return [
       this.getPreviewSettings(),
-      this.createToggleSetting(
-        "Keep live preview visible",
-        "Keep the preview pinned while you scroll through the settings.",
-        () => this.plugin.settings.previewSticky,
-        async (value) => {
-          this.plugin.settings.previewSticky = value;
-          await this.plugin.saveSettings({ refreshStats: false });
-          this.updatePreviewSticky();
-        }
-      ),
       this.createBuildInfoSetting(),
-      this.getBadgeDisplaySettings(),
-      this.getCountingRuleSettings(),
+      this.getBadgeSettings(),
       this.getStatusBarSettings(),
-      this.getMobileSettings(),
-      this.getWritingTargetSettings()
+      this.getWritingTargetSettings(),
+      this.getLabelFormatSettings(),
+      this.getCountingSettings()
     ];
   }
 
@@ -1690,138 +1922,47 @@ class SectionMeterSettingTab extends PluginSettingTab {
     };
   }
 
-  private getBadgeDisplaySettings(): SettingDefinitionGroup {
+  private getBadgeSettings(): SettingDefinitionGroup {
     return {
       type: "group",
-      heading: "Badge display",
+      heading: "Badges",
       items: [
         this.createToggleSetting(
-          "Show heading stats",
+          "Beside headings",
           "Show section stats beside Markdown headings in the editor and Reading view.",
           () => this.plugin.settings.showHeadingStats,
           async (value) => {
             this.plugin.settings.showHeadingStats = value;
             await this.plugin.saveSettings();
-          }
+          },
+          { aliases: ["Show heading stats"] }
         ),
         this.createToggleSetting(
-          "Show inline title stats",
+          "Below the note title",
           "Show whole-note stats below the inline note title in the editor and Reading view.",
           () => this.plugin.settings.showInlineTitleStats,
           async (value) => {
             this.plugin.settings.showInlineTitleStats = value;
             await this.plugin.saveSettings();
-          }
-        ),
-        this.createToggleSetting(
-          "Word count",
-          "Show readable word counts in heading and title badges.",
-          () => this.plugin.settings.showWords,
-          async (value) => {
-            this.plugin.settings.showWords = value;
-            await this.plugin.saveSettings();
           },
-          { updateAfterChange: true }
+          { aliases: ["Show inline title stats"] }
         ),
-        this.createToggleSetting(
-          "Reading time",
-          "Show estimated reading time in heading and title badges.",
-          () => this.plugin.settings.showTiming,
-          async (value) => {
-            this.plugin.settings.showTiming = value;
-            await this.plugin.saveSettings();
-          },
-          { updateAfterChange: true }
-        ),
-        this.createToggleSetting(
-          "Character count",
-          "Show readable character counts in heading and title badges.",
-          () => this.plugin.settings.showCharacters,
-          async (value) => {
-            this.plugin.settings.showCharacters = value;
-            await this.plugin.saveSettings();
-          },
-          { updateAfterChange: true }
-        ),
-        this.createToggleSetting(
-          "Compact mode",
-          "Use shorter labels like 640w, 3200 chars, and 3m/49s in heading badges, title badges, and the status bar.",
-          () => this.plugin.settings.compactMode,
-          async (value) => {
-            this.plugin.settings.compactMode = value;
-            await this.plugin.saveSettings();
-          },
-          { updateAfterChange: true }
+        this.createMetricChipsSetting(
+          "Show",
+          "Choose what heading and title badges display.",
+          [
+            { label: "Words", getValue: () => this.plugin.settings.showWords,
+              setValue: (value) => { this.plugin.settings.showWords = value; } },
+            { label: "Reading time", getValue: () => this.plugin.settings.showTiming,
+              setValue: (value) => { this.plugin.settings.showTiming = value; } },
+            { label: "Characters", getValue: () => this.plugin.settings.showCharacters,
+              setValue: (value) => { this.plugin.settings.showCharacters = value; } }
+          ],
+          ["Badge word count", "Badge reading time", "Badge character count"]
         ),
         this.createTextSetting(
-          "Compact words label",
-          "Suffix used for word counts in compact mode. Defaults to w.",
-          DEFAULT_SETTINGS.compactWordsLabel,
-          () => this.plugin.settings.compactWordsLabel,
-          async (value) => {
-            this.plugin.settings.compactWordsLabel =
-              value.trim() || DEFAULT_SETTINGS.compactWordsLabel;
-            await this.plugin.saveSettings();
-          },
-          {
-            visible: () => this.plugin.settings.compactMode,
-            updatePreviewAfterChange: true
-          }
-        ),
-        this.createTextSetting(
-          "Compact characters label",
-          "Label used for character counts in compact mode. Defaults to char.",
-          DEFAULT_SETTINGS.compactCharactersLabel,
-          () => this.plugin.settings.compactCharactersLabel,
-          async (value) => {
-            this.plugin.settings.compactCharactersLabel =
-              value.trim() || DEFAULT_SETTINGS.compactCharactersLabel;
-            await this.plugin.saveSettings();
-          },
-          {
-            visible: () => this.plugin.settings.compactMode,
-            updatePreviewAfterChange: true
-          }
-        ),
-        this.createTextSetting(
-          "Compact minutes label",
-          "Suffix used for minute estimates in compact mode. Defaults to m.",
-          DEFAULT_SETTINGS.compactMinutesLabel,
-          () => this.plugin.settings.compactMinutesLabel,
-          async (value) => {
-            this.plugin.settings.compactMinutesLabel =
-              value.trim() || DEFAULT_SETTINGS.compactMinutesLabel;
-            await this.plugin.saveSettings();
-          },
-          {
-            visible: () => this.plugin.settings.compactMode,
-            updatePreviewAfterChange: true
-          }
-        ),
-        this.createToggleSetting(
-          "Minutes only",
-          "Hide seconds in reading-time labels once they reach a minute. Times below one minute still show seconds.",
-          () => this.plugin.settings.showTimeAsMinutesOnly,
-          async (value) => {
-            this.plugin.settings.showTimeAsMinutesOnly = value;
-            await this.plugin.saveSettings();
-          },
-          { updatePreviewAfterChange: true }
-        ),
-        this.createTextSetting(
-          "Separator",
-          "Single character used between enabled badge label parts.",
-          DEFAULT_SETTINGS.labelSeparator,
-          () => this.plugin.settings.labelSeparator,
-          async (value) => {
-            this.plugin.settings.labelSeparator = normalizeSeparator(value);
-            await this.plugin.saveSettings();
-          },
-          { updatePreviewAfterChange: true }
-        ),
-        this.createTextSetting(
-          "Minimum word count",
-          "Hide badges for sections below this word count. Use 0 to show all headings.",
+          "Hide sections shorter than",
+          "Number of words. Use 0 to show every heading, or 1 to hide empty sections. Sections with a target always show.",
           String(DEFAULT_SETTINGS.minimumWordCount),
           () => String(this.plugin.settings.minimumWordCount),
           async (value) => {
@@ -1830,39 +1971,8 @@ class SectionMeterSettingTab extends PluginSettingTab {
               DEFAULT_SETTINGS.minimumWordCount
             );
             await this.plugin.saveSettings();
-          }
-        ),
-        this.createToggleSetting(
-          "Hide empty sections",
-          "Hide badges for headings with no readable words below them.",
-          () => this.plugin.settings.hideEmptySections,
-          async (value) => {
-            this.plugin.settings.hideEmptySections = value;
-            await this.plugin.saveSettings();
-          }
-        )
-      ]
-    };
-  }
-
-  private getCountingRuleSettings(): SettingDefinitionGroup {
-    return {
-      type: "group",
-      heading: "Counting rules",
-      items: [
-        this.createReadingSpeedSetting(),
-        this.createToggleSetting(
-          "Count spaces",
-          "Count normalized spaces between words in character counts.",
-          () => this.plugin.settings.countCharactersWithSpaces,
-          async (value) => {
-            this.plugin.settings.countCharactersWithSpaces = value;
-            await this.plugin.saveSettings();
           },
-          {
-            disabled: () => !this.plugin.settings.showCharacters
-              && !this.plugin.settings.showStatusBarCharacters
-          }
+          { aliases: ["Minimum word count", "Hide empty sections"] }
         )
       ]
     };
@@ -1893,54 +2003,108 @@ class SectionMeterSettingTab extends PluginSettingTab {
           },
           { updatePreviewAfterChange: true }
         ),
-        this.createToggleSetting(
-          "Word count",
-          "Show word counts in the status bar.",
-          () => this.plugin.settings.showStatusBarWords,
-          async (value) => {
-            this.plugin.settings.showStatusBarWords = value;
-            await this.plugin.saveSettings();
-          },
-          { updateAfterChange: true }
-        ),
-        this.createToggleSetting(
-          "Reading time",
-          "Show estimated reading time in the status bar.",
-          () => this.plugin.settings.showStatusBarTiming,
-          async (value) => {
-            this.plugin.settings.showStatusBarTiming = value;
-            await this.plugin.saveSettings();
-          },
-          { updateAfterChange: true }
-        ),
-        this.createToggleSetting(
-          "Character count",
-          "Show readable character counts in the status bar.",
-          () => this.plugin.settings.showStatusBarCharacters,
-          async (value) => {
-            this.plugin.settings.showStatusBarCharacters = value;
-            await this.plugin.saveSettings();
-          },
-          { updateAfterChange: true }
+        this.createMetricChipsSetting(
+          "Show",
+          "Choose what the status bar displays.",
+          [
+            { label: "Words", getValue: () => this.plugin.settings.showStatusBarWords,
+              setValue: (value) => { this.plugin.settings.showStatusBarWords = value; } },
+            { label: "Reading time", getValue: () => this.plugin.settings.showStatusBarTiming,
+              setValue: (value) => { this.plugin.settings.showStatusBarTiming = value; } },
+            { label: "Characters", getValue: () => this.plugin.settings.showStatusBarCharacters,
+              setValue: (value) => { this.plugin.settings.showStatusBarCharacters = value; } }
+          ],
+          ["Status bar word count", "Status bar reading time", "Status bar character count"]
         )
       ]
     };
   }
 
-  private getMobileSettings(): SettingDefinitionGroup {
+  private getWritingTargetSettings(): SettingDefinitionGroup {
     return {
       type: "group",
-      heading: "Mobile",
+      heading: "Writing targets",
       items: [
+        this.createDropdownSetting(
+          "Progress label",
+          "Show target progress as a count, a percentage, or the amount left or over.",
+          () => this.plugin.settings.targetProgressLabelStyle,
+          {
+            count: "Count (n/N)",
+            percentage: "Percentage",
+            remaining: "Remaining"
+          },
+          async (value) => {
+            this.plugin.settings.targetProgressLabelStyle =
+              normalizeTargetProgressLabelStyle(value);
+            await this.plugin.saveSettings();
+          },
+          { updatePreviewAfterChange: true }
+        ),
+        this.createDropdownSetting(
+          "Progress colours",
+          "Theme accent turns green when reached and orange when over. Classic uses yellow, green, and red.",
+          () => this.plugin.settings.classicTargetColors ? "classic" : "accent",
+          {
+            accent: "Theme accent",
+            classic: "Classic"
+          },
+          async (value) => {
+            this.plugin.settings.classicTargetColors = value === "classic";
+            await this.plugin.saveSettings({ refreshStats: false });
+          },
+          { aliases: ["Classic progress colours", "Colors"] }
+        ),
+        this.createSliderSetting(
+          "Warn when over",
+          "Change the progress colour once writing reaches this percentage of the target.",
+          MIN_TARGET_OVERAGE_WARNING_PERCENT,
+          MAX_TARGET_OVERAGE_WARNING_PERCENT,
+          TARGET_OVERAGE_WARNING_PERCENT_STEP,
+          () => this.plugin.settings.targetOverageWarningPercent,
+          async (value) => {
+            this.plugin.settings.targetOverageWarningPercent = value;
+            await this.plugin.saveSettings();
+          },
+          { aliases: ["Overage warning threshold"], updatePreviewAfterChange: true }
+        ),
         this.createToggleSetting(
-          "Sticky current-section meter (Beta)",
-          "Beta: show writing-target progress while scrolling in the mobile editor. Tap the meter to switch between percentage and count.",
+          "Show target lines as chips",
+          "In Live Preview, show valid Target lines as chips. Click a chip to edit the line; the Markdown never changes.",
+          () => this.plugin.settings.showTargetChips,
+          async (value) => {
+            this.plugin.settings.showTargetChips = value;
+            await this.plugin.saveSettings();
+          }
+        ),
+        this.createToggleSetting(
+          "Notify when a target is reached",
+          "Show a one-time notice when writing crosses a whole-note or section target.",
+          () => this.plugin.settings.notifyOnTargetReached,
+          async (value) => {
+            this.plugin.settings.notifyOnTargetReached = value;
+            await this.plugin.saveSettings({ refreshStats: false });
+          }
+        ),
+        this.createTextSetting(
+          "Quick target presets",
+          "Comma-separated targets shown in the target dialog. Example: 250 words, 500 words, 10m.",
+          DEFAULT_SETTINGS.targetPresets,
+          () => this.plugin.settings.targetPresets,
+          async (value) => {
+            this.plugin.settings.targetPresets = value;
+            await this.plugin.saveSettings({ refreshStats: false });
+          }
+        ),
+        this.createToggleSetting(
+          "Sticky target meter on mobile (Beta)",
+          "Show the current target's progress while scrolling in the mobile editor. Tap the meter to switch between percentage and count.",
           () => this.plugin.settings.mobileStickySectionMeter,
           async (value) => {
             this.plugin.settings.mobileStickySectionMeter = value;
             await this.plugin.saveSettings();
           },
-          { updateAfterChange: true }
+          { updateAfterChange: true, aliases: ["Sticky current-section meter", "Mobile"] }
         ),
         this.createDropdownSetting(
           "Meter position",
@@ -1957,67 +2121,153 @@ class SectionMeterSettingTab extends PluginSettingTab {
             this.plugin.refreshMobileMeterPlacement();
           },
           { visible: () => this.plugin.settings.mobileStickySectionMeter }
+        ),
+        this.createGuidanceSetting(
+          "How to write targets",
+          "Put a line under a heading, such as Target: 250 words, target 250w, Target: 1800 chars, or Target: 2m 30s. A target above the first heading applies to the whole note."
         )
       ]
     };
   }
 
-  private getWritingTargetSettings(): SettingDefinitionGroup {
+  private getLabelFormatSettings(): SettingDefinitionGroup {
     return {
       type: "group",
-      heading: "Writing targets",
+      heading: "Label format",
       items: [
-        this.createGuidanceSetting(
-          "Supported target formats",
-          "Examples: Target: 250 words, target 250w, Target: 1800 chars, Target: 2m 30s. Use a standalone line with an explicit unit."
-        ),
-        this.createDropdownSetting(
-          "Progress label",
-          "Show target progress as a count, a percentage, or the amount remaining.",
-          () => this.plugin.settings.targetProgressLabelStyle,
-          {
-            count: "Count (n/N)",
-            percentage: "Percentage",
-            remaining: "Remaining"
-          },
+        this.createToggleSetting(
+          "Compact labels",
+          "Use shorter labels like 640w, 3200 chars, and 3m 49s in badges and the status bar.",
+          () => this.plugin.settings.compactMode,
           async (value) => {
-            this.plugin.settings.targetProgressLabelStyle =
-              normalizeTargetProgressLabelStyle(value);
+            this.plugin.settings.compactMode = value;
             await this.plugin.saveSettings();
+          },
+          { updateAfterChange: true, aliases: ["Compact mode"] }
+        ),
+        this.createTextSetting(
+          "Compact words label",
+          "Suffix used for word counts in compact labels. Defaults to w.",
+          DEFAULT_SETTINGS.compactWordsLabel,
+          () => this.plugin.settings.compactWordsLabel,
+          async (value) => {
+            this.plugin.settings.compactWordsLabel =
+              value.trim() || DEFAULT_SETTINGS.compactWordsLabel;
+            await this.plugin.saveSettings();
+          },
+          {
+            visible: () => this.plugin.settings.compactMode,
+            updatePreviewAfterChange: true
           }
         ),
         this.createTextSetting(
-          "Quick target presets",
-          "Comma-separated targets shown in the target dialog. Example: 250 words, 500 words, 10m.",
-          DEFAULT_SETTINGS.targetPresets,
-          () => this.plugin.settings.targetPresets,
+          "Compact characters label",
+          "Label used for character counts in compact labels. Defaults to char.",
+          DEFAULT_SETTINGS.compactCharactersLabel,
+          () => this.plugin.settings.compactCharactersLabel,
           async (value) => {
-            this.plugin.settings.targetPresets = value;
-            await this.plugin.saveSettings({ refreshStats: false });
+            this.plugin.settings.compactCharactersLabel =
+              value.trim() || DEFAULT_SETTINGS.compactCharactersLabel;
+            await this.plugin.saveSettings();
+          },
+          {
+            visible: () => this.plugin.settings.compactMode,
+            updatePreviewAfterChange: true
+          }
+        ),
+        this.createTextSetting(
+          "Compact minutes label",
+          "Suffix used for minute estimates in compact labels. Defaults to m.",
+          DEFAULT_SETTINGS.compactMinutesLabel,
+          () => this.plugin.settings.compactMinutesLabel,
+          async (value) => {
+            this.plugin.settings.compactMinutesLabel =
+              value.trim() || DEFAULT_SETTINGS.compactMinutesLabel;
+            await this.plugin.saveSettings();
+          },
+          {
+            visible: () => this.plugin.settings.compactMode,
+            updatePreviewAfterChange: true
           }
         ),
         this.createToggleSetting(
-          "Notify when a target is reached",
-          "Show a one-time notice when writing crosses a whole-note or section target.",
-          () => this.plugin.settings.notifyOnTargetReached,
+          "Minutes only",
+          "Hide seconds in reading-time labels once they reach a minute. Times below one minute still show seconds.",
+          () => this.plugin.settings.showTimeAsMinutesOnly,
           async (value) => {
-            this.plugin.settings.notifyOnTargetReached = value;
-            await this.plugin.saveSettings({ refreshStats: false });
-          }
-        ),
-        this.createSliderSetting(
-          "Overage warning threshold",
-          "Turn target progress red when it reaches this percentage of the target.",
-          MIN_TARGET_OVERAGE_WARNING_PERCENT,
-          MAX_TARGET_OVERAGE_WARNING_PERCENT,
-          TARGET_OVERAGE_WARNING_PERCENT_STEP,
-          () => this.plugin.settings.targetOverageWarningPercent,
-          async (value) => {
-            this.plugin.settings.targetOverageWarningPercent = value;
+            this.plugin.settings.showTimeAsMinutesOnly = value;
             await this.plugin.saveSettings();
+          },
+          { updatePreviewAfterChange: true }
+        ),
+        this.createTextSetting(
+          "Separator",
+          "Single character placed between the parts of a label.",
+          DEFAULT_SETTINGS.labelSeparator,
+          () => this.plugin.settings.labelSeparator,
+          async (value) => {
+            this.plugin.settings.labelSeparator = normalizeSeparator(value);
+            await this.plugin.saveSettings();
+          },
+          { updatePreviewAfterChange: true }
+        )
+      ]
+    };
+  }
+
+  private getCountingSettings(): SettingDefinitionGroup {
+    return {
+      type: "group",
+      heading: "Counting",
+      items: [
+        this.createReadingSpeedSetting(),
+        this.createToggleSetting(
+          "Count spaces in characters",
+          "Count normalized spaces between words in character counts.",
+          () => this.plugin.settings.countCharactersWithSpaces,
+          async (value) => {
+            this.plugin.settings.countCharactersWithSpaces = value;
+            await this.plugin.saveSettings();
+          },
+          {
+            aliases: ["Count spaces"],
+            disabled: () => !this.plugin.settings.showCharacters
+              && !this.plugin.settings.showStatusBarCharacters
           }
         )
       ]
+    };
+  }
+
+  /** Obsidian has no multi-select control, so each option is a pressed/unpressed button. */
+  private createMetricChipsSetting(
+    name: string,
+    desc: string,
+    chips: { label: string; getValue: () => boolean; setValue: (value: boolean) => void }[],
+    aliases: string[]
+  ): SettingDefinition {
+    return {
+      name,
+      desc,
+      aliases,
+      render: (setting) => {
+        setting.setName(name).setDesc(desc);
+        setting.controlEl.classList.add("section-meter-setting-chips");
+        for (const chip of chips) {
+          setting.addButton((button) => {
+            const isOn = chip.getValue();
+            button.setButtonText(chip.label).onClick(async () => {
+              chip.setValue(!chip.getValue());
+              // Normalizing turns another option back on if this was the last one.
+              await this.plugin.saveSettings();
+              this.update();
+            });
+            button.buttonEl.classList.add("section-meter-setting-chip");
+            button.buttonEl.classList.toggle("mod-cta", isOn);
+            button.buttonEl.setAttribute("aria-pressed", String(isOn));
+          });
+        }
+      }
     };
   }
 
@@ -2052,6 +2302,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
     return {
       name: "Live preview",
       desc: "Preview heading badges and status-bar statistics while changing settings.",
+      aliases: ["Keep live preview visible", "Pin preview"],
       render: (setting) => {
         setting.settingEl.empty();
         setting.settingEl.classList.add("section-meter-settings-preview-row");
@@ -2063,15 +2314,37 @@ class SectionMeterSettingTab extends PluginSettingTab {
           "section-meter-settings-preview-static",
           !this.plugin.settings.previewSticky
         );
+        this.keepSettingsStillWhilePreviewResizes(this.previewEl);
         const settings = this.plugin.settings;
         const previewEl = setting.settingEl.createDiv({
           cls: "section-meter-settings-preview"
         });
 
-        previewEl.createDiv({
-          cls: "section-meter-settings-preview-heading",
-          text: "Live preview"
+        const headerEl = previewEl.createDiv({
+          cls: "section-meter-settings-preview-heading"
         });
+        headerEl.createSpan({ text: "Live preview" });
+        const pinButton = headerEl.createEl("button", {
+          cls: "clickable-icon section-meter-settings-preview-pin",
+          attr: { type: "button" }
+        });
+        const updatePinButton = () => {
+          const pinned = this.plugin.settings.previewSticky;
+          setIcon(pinButton, pinned ? "pin" : "pin-off");
+          pinButton.setAttribute("aria-label", pinned
+            ? "Preview stays visible while scrolling. Click to unpin."
+            : "Pin the preview so it stays visible while scrolling.");
+          pinButton.setAttribute("aria-pressed", String(pinned));
+          pinButton.classList.toggle("is-active", pinned);
+        };
+        updatePinButton();
+        pinButton.addEventListener("click", () => {
+          this.plugin.settings.previewSticky = !this.plugin.settings.previewSticky;
+          updatePinButton();
+          this.updatePreviewSticky();
+          void this.plugin.saveSettings({ refreshStats: false });
+        });
+
         const examplesEl = previewEl.createDiv({
           cls: "section-meter-settings-preview-examples"
         });
@@ -2079,6 +2352,11 @@ class SectionMeterSettingTab extends PluginSettingTab {
         const badgePreview = createSettingsHeadingPreview(settings);
         this.badgePreviewValueEl = badgePreview.valueEl;
         examplesEl.appendChild(badgePreview.el);
+
+        this.targetPreviewSlotEl = examplesEl.createDiv({
+          cls: "section-meter-settings-preview-slot"
+        });
+        this.targetPreviewSlotEl.appendChild(createSettingsTargetPreview(settings));
 
         const statusBarPreview = createSettingsStatusBarPreview(settings);
         this.statusBarPreviewContentEl = statusBarPreview.contentEl;
@@ -2130,6 +2408,8 @@ class SectionMeterSettingTab extends PluginSettingTab {
       );
     }
 
+    this.targetPreviewSlotEl?.replaceChildren(createSettingsTargetPreview(settings));
+
     if (this.statusBarPreviewContentEl) {
       this.statusBarPreviewContentEl.replaceChildren(
         ...createSettingsStatusBarParts(settings)
@@ -2147,6 +2427,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
     return {
       name,
       desc,
+      aliases: options.aliases,
       visible: options.visible,
       render: (setting) => {
         setting.setName(name)
@@ -2173,6 +2454,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
     return {
       name,
       desc,
+      aliases: options.aliases,
       visible: options.visible,
       render: (setting) => {
         setting.setName(name)
@@ -2201,6 +2483,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
     return {
       name,
       desc,
+      aliases: options.aliases,
       visible: options.visible,
       render: (setting) => {
         setting.setName(name)
@@ -2228,6 +2511,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
     return {
       name,
       desc,
+      aliases: rowOptions.aliases,
       visible: rowOptions.visible,
       render: (setting) => {
         setting.setName(name)
@@ -2259,6 +2543,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
 }
 
 type SettingRowOptions = {
+  aliases?: string[];
   disabled?: () => boolean;
   visible?: () => boolean;
   updateAfterChange?: boolean;
@@ -2315,6 +2600,53 @@ function createSettingsHeadingPreview(
   el.appendChild(headingEl);
 
   return { el, valueEl };
+}
+
+function findScrollContainer(element: HTMLElement): HTMLElement | null {
+  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+    const { overflowY } = getComputedStyle(parent);
+    if (overflowY === "auto" || overflowY === "scroll") return parent;
+  }
+  return null;
+}
+
+function createSettingsTargetPreview(settings: SectionMeterSettings): HTMLElement {
+  const el = createDiv();
+  el.className = "section-meter-settings-preview-example";
+
+  const labelEl = createDiv();
+  labelEl.className = "section-meter-settings-preview-example-label";
+  labelEl.textContent = "Section with a target";
+  el.appendChild(labelEl);
+
+  const headingEl = createDiv();
+  headingEl.className = "section-meter-settings-preview-heading-sample";
+  const markerEl = createSpan();
+  markerEl.className = "section-meter-settings-preview-heading-marker";
+  markerEl.textContent = "##";
+  const textEl = createSpan();
+  textEl.textContent = "Opening scene";
+  headingEl.append(markerEl, textEl);
+
+  const words = Array.from({ length: PREVIEW_TARGET_WORD_COUNT }, () => "word").join(" ");
+  const [summary] = summarizeSectionReadingTimes(
+    `# Preview\nTarget: ${PREVIEW_TARGET_WORDS} words\n${words}`,
+    settings
+  );
+  if (summary) {
+    headingEl.appendChild(createReadingTimeBadge(
+      summary.label,
+      summary.wordCount,
+      summary.characterCount,
+      summary.seconds,
+      summary.target,
+      "section-meter-settings-preview-badge",
+      false,
+      "Target badge preview"
+    ));
+  }
+  el.appendChild(headingEl);
+  return el;
 }
 
 function createPreviewHeadingLabel(settings: SectionMeterSettings): string {
@@ -2594,14 +2926,11 @@ function normalizeSettings(settings: StoredSettings): SectionMeterSettings {
         DEFAULT_SETTINGS.countCharactersWithSpaces
       ),
     labelSeparator: normalizeSeparator(settings.labelSeparator),
-    minimumWordCount: parseNonNegativeInteger(
-      settings.minimumWordCount,
-      DEFAULT_SETTINGS.minimumWordCount
-    ),
-    hideEmptySections: normalizeBoolean(
-      settings.hideEmptySections,
-      DEFAULT_SETTINGS.hideEmptySections
-    ),
+    // "Hide empty sections" is now a minimum of one word.
+    minimumWordCount: settings.hideEmptySections === true
+      ? Math.max(1, parseNonNegativeInteger(settings.minimumWordCount, DEFAULT_SETTINGS.minimumWordCount))
+      : parseNonNegativeInteger(settings.minimumWordCount, DEFAULT_SETTINGS.minimumWordCount),
+    hideEmptySections: false,
     showHeadingStats: normalizeBoolean(
       settings.showHeadingStats,
       DEFAULT_SETTINGS.showHeadingStats
@@ -2632,6 +2961,11 @@ function normalizeSettings(settings: StoredSettings): SectionMeterSettings {
       settings.notifyOnTargetReached,
       DEFAULT_SETTINGS.notifyOnTargetReached
     ),
+    classicTargetColors: normalizeBoolean(
+      settings.classicTargetColors,
+      DEFAULT_SETTINGS.classicTargetColors
+    ),
+    showTargetChips: normalizeBoolean(settings.showTargetChips, DEFAULT_SETTINGS.showTargetChips),
     mobileStickySectionMeter: normalizeBoolean(
       settings.mobileStickySectionMeter,
       DEFAULT_SETTINGS.mobileStickySectionMeter
@@ -2687,7 +3021,7 @@ function formatConfiguredStats(
 function getReadingTimeSettingsKey(settings: SectionMeterSettings): string {
   // These preferences change controls/placement, not parsed statistics or labels.
   return JSON.stringify({ ...settings, previewSticky: null, mobileMeterPosition: null,
-    targetPresets: null, notifyOnTargetReached: null });
+    targetPresets: null, notifyOnTargetReached: null, classicTargetColors: null, showTargetChips: null });
 }
 
 function removeTitleBadge(container: HTMLElement): void {
@@ -2774,7 +3108,7 @@ function createBadgeTargetGroupEl(target: WritingTargetProgress): HTMLElement {
 
   const captionEl = createSpan();
   captionEl.className = "section-meter-target-caption";
-  captionEl.textContent = "Target";
+  setIcon(captionEl, "target");
   groupEl.appendChild(captionEl);
   groupEl.appendChild(createTargetLabelEl(target));
   groupEl.appendChild(createTargetProgressEl(target));
@@ -2829,7 +3163,7 @@ function createStatusBarSeparatorEl(): HTMLElement {
 
 function createTargetLabelEl(target: WritingTargetProgress): HTMLElement {
   const labelEl = createSpan();
-  labelEl.className = "section-meter-target-label";
+  labelEl.className = ["section-meter-target-label", getTargetProgressStateClass(target)].join(" ");
   labelEl.textContent = target.label;
   return labelEl;
 }

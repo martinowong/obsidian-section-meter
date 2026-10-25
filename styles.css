@@ -1,16 +1,39 @@
+body {
+  --section-meter-progress-start: var(--interactive-accent);
+  --section-meter-progress-mid: var(--interactive-accent);
+  --section-meter-progress-close: var(--interactive-accent);
+  --section-meter-progress-complete: var(--color-green);
+  --section-meter-progress-overage: var(--color-orange);
+  --section-meter-progress-complete-text: var(--color-green);
+  --section-meter-progress-overage-text: var(--color-orange);
+}
+
+body.section-meter-classic-target-colors {
+  --section-meter-progress-start: var(--text-faint);
+  --section-meter-progress-mid: var(--color-yellow);
+  --section-meter-progress-close: color-mix(in srgb, var(--color-green) 62%, transparent);
+  --section-meter-progress-complete: var(--color-green);
+  --section-meter-progress-overage: var(--color-red);
+  --section-meter-progress-complete-text: var(--text-normal);
+  --section-meter-progress-overage-text: var(--text-normal);
+}
+
 .section-meter-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.35em;
-  margin-inline-start: 0.5em;
-  padding: 0.05em 0.4em;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
+  gap: 0.45em;
+  margin-inline-start: 0.6em;
+  padding: 0.12em 0.65em;
+  border: 0;
+  border-radius: 999px;
   color: var(--text-muted);
-  background: var(--background-secondary);
-  font-size: 0.68em;
+  background: var(--background-modifier-hover);
+  font-family: var(--font-interface);
+  font-size: 0.66em;
+  font-variant-numeric: tabular-nums;
   font-weight: 500;
-  line-height: 1.4;
+  letter-spacing: 0.01em;
+  line-height: 1.45;
   vertical-align: middle;
   white-space: nowrap;
   pointer-events: auto;
@@ -28,6 +51,10 @@
   touch-action: manipulation;
 }
 
+.section-meter-badge-action {
+  transition: color 120ms ease;
+}
+
 .section-meter-badge-action:hover {
   color: var(--text-normal);
 }
@@ -39,7 +66,7 @@
 }
 
 .section-meter-target-label {
-  color: var(--text-muted);
+  color: var(--text-normal);
 }
 
 .section-meter-target-separator {
@@ -55,19 +82,25 @@
   min-inline-size: 0;
   align-items: center;
   gap: 0.4em;
-  padding-inline-start: 0.55em;
-  border-inline-start: 1px solid var(--background-modifier-border);
+  padding-inline-start: 0.6em;
+  border-inline-start: 1px solid var(--background-modifier-border-hover);
 }
 
 .section-meter-target-caption {
+  display: inline-flex;
   color: var(--text-faint);
-  font-size: 0.9em;
+}
+
+.section-meter-target-caption svg {
+  inline-size: 1.1em;
+  block-size: 1.1em;
+  stroke-width: 2.25px;
 }
 
 .section-meter-target-progress {
   display: inline-flex;
-  inline-size: 3.5em;
-  block-size: 0.35em;
+  inline-size: 3.25em;
+  block-size: 0.3em;
   overflow: hidden;
   flex: none;
   border-radius: 999px;
@@ -79,6 +112,7 @@
   block-size: 100%;
   border-radius: inherit;
   background: var(--text-faint);
+  transition: inline-size 240ms ease, background-color 240ms ease;
 }
 
 .section-meter-badge > .section-meter-target-separator {
@@ -86,24 +120,39 @@
 }
 
 .section-meter-target-start .section-meter-target-progress-fill {
-  background: var(--text-faint);
+  background: var(--section-meter-progress-start);
 }
 
 .section-meter-target-mid .section-meter-target-progress-fill {
-  background: var(--color-yellow);
+  background: var(--section-meter-progress-mid);
 }
 
 .section-meter-target-close .section-meter-target-progress-fill {
-  background: var(--color-green);
-  opacity: 0.62;
+  background: var(--section-meter-progress-close);
 }
 
 .section-meter-target-complete .section-meter-target-progress-fill {
-  background: var(--color-green);
+  background: var(--section-meter-progress-complete);
 }
 
 .section-meter-target-overage .section-meter-target-progress-fill {
-  background: var(--color-red);
+  background: var(--section-meter-progress-overage);
+}
+
+.section-meter-target-label.section-meter-target-complete {
+  color: var(--section-meter-progress-complete-text);
+}
+
+.section-meter-target-label.section-meter-target-overage {
+  color: var(--section-meter-progress-overage-text);
+}
+
+/* A non-colour cue, so a reached target is clear in every colour scheme. */
+.section-meter-target-label.section-meter-target-complete::before,
+.section-meter-mobile-current-section:has(
+  .section-meter-mobile-current-section-progress.section-meter-target-complete
+) .section-meter-mobile-current-section-label::before {
+  content: "✓\00a0";
 }
 
 .cm-content .section-meter-badge,
@@ -113,7 +162,61 @@
 }
 
 .cm-line .section-meter-badge {
-  opacity: 0.78;
+  opacity: 0.85;
+  transition: opacity 120ms ease;
+}
+
+.cm-line .section-meter-badge:hover {
+  opacity: 1;
+}
+
+.section-meter-target-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.15em 0.7em;
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: var(--background-modifier-hover);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  vertical-align: middle;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.section-meter-target-chip:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-active-hover);
+}
+
+.section-meter-target-chip-icon {
+  display: inline-flex;
+  color: var(--interactive-accent);
+}
+
+.section-meter-target-chip-icon svg {
+  inline-size: 1.05em;
+  block-size: 1.05em;
+  stroke-width: 2.25px;
+}
+
+.section-meter-target-chip-value {
+  color: var(--text-normal);
+  font-weight: 500;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section-meter-badge-action,
+  .section-meter-target-progress-fill,
+  .cm-line .section-meter-badge,
+  .section-meter-target-chip {
+    transition: none;
+  }
 }
 
 .section-meter-reading-badge {
@@ -165,11 +268,12 @@ body.is-mobile .section-meter-title-row .section-meter-title-badge,
 body.is-mobile .section-meter-badge.section-meter-target-badge,
 .is-mobile .section-meter-badge.section-meter-target-badge {
   display: inline-grid;
+  border-radius: 10px;
   grid-template-columns: minmax(0, 1fr);
   gap: 0.4em;
   inline-size: min(100%, 28rem);
   margin-block-start: 0.35em;
-  padding: 0.35em 0.5em 0.45em;
+  padding: 0.45em 0.7em 0.55em;
   vertical-align: top;
   white-space: normal;
 }
@@ -214,11 +318,12 @@ body.is-mobile .section-meter-target-progress,
 
   .section-meter-badge.section-meter-target-badge {
     display: inline-grid;
+    border-radius: 10px;
     grid-template-columns: minmax(0, 1fr);
     gap: 0.4em;
     inline-size: min(100%, 28rem);
     margin-block-start: 0.35em;
-    padding: 0.35em 0.5em 0.45em;
+    padding: 0.45em 0.7em 0.55em;
     vertical-align: top;
     white-space: normal;
   }
@@ -268,11 +373,8 @@ body.is-mobile .section-meter-target-progress,
   margin-block: 0 0.55rem;
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
-  background:
-    linear-gradient(135deg, var(--background-modifier-hover), transparent 42%),
-    var(--background-secondary);
-  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.07);
+  border-radius: 12px;
+  background: var(--background-secondary);
 }
 
 .section-meter-settings-preview-static {
@@ -280,11 +382,14 @@ body.is-mobile .section-meter-target-progress,
 }
 
 .section-meter-settings-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   margin-block-end: 0.45rem;
   color: var(--text-normal);
   font-size: var(--font-ui-small);
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  font-weight: 600;
 }
 
 .section-meter-settings-preview-build {
@@ -306,7 +411,7 @@ body.is-mobile .section-meter-target-progress,
   min-inline-size: 0;
   padding: 0.55rem 0.65rem;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--background-primary);
 }
 
@@ -314,7 +419,7 @@ body.is-mobile .section-meter-target-progress,
   margin-block-end: 0.35rem;
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: 0.02em;
 }
 
@@ -326,7 +431,7 @@ body.is-mobile .section-meter-target-progress,
   gap: 0.3rem;
   color: var(--text-normal);
   font-size: var(--font-ui-medium);
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.25;
 }
 
@@ -544,28 +649,27 @@ body.is-mobile .section-meter-mobile-current-section-target,
 
 .section-meter-mobile-current-section-progress.section-meter-target-start
   .section-meter-mobile-current-section-progress-fill {
-  background: var(--text-faint);
+  background: var(--section-meter-progress-start);
 }
 
 .section-meter-mobile-current-section-progress.section-meter-target-mid
   .section-meter-mobile-current-section-progress-fill {
-  background: var(--color-yellow);
+  background: var(--section-meter-progress-mid);
 }
 
 .section-meter-mobile-current-section-progress.section-meter-target-close
   .section-meter-mobile-current-section-progress-fill {
-  background: var(--color-green);
-  opacity: 0.62;
+  background: var(--section-meter-progress-close);
 }
 
 .section-meter-mobile-current-section-progress.section-meter-target-complete
   .section-meter-mobile-current-section-progress-fill {
-  background: var(--color-green);
+  background: var(--section-meter-progress-complete);
 }
 
 .section-meter-mobile-current-section-progress.section-meter-target-overage
   .section-meter-mobile-current-section-progress-fill {
-  background: var(--color-red);
+  background: var(--section-meter-progress-overage);
 }
 
 body.is-mobile .section-meter-mobile-current-section-target:active,
@@ -617,18 +721,20 @@ body.is-mobile
 }
 
 .section-meter-target-preset {
-  padding: 0.3rem 0.55rem;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 0.45rem;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
   color: var(--text-normal);
-  background: var(--background-secondary);
+  background: var(--background-modifier-hover);
+  box-shadow: none;
   font: inherit;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
 
 .section-meter-target-preset:hover {
   border-color: var(--interactive-accent);
-  background: var(--background-modifier-hover);
+  background: var(--background-modifier-active-hover);
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -645,4 +751,50 @@ body.is-mobile
 .is-mobile
   .section-meter-mobile-current-section.section-meter-mobile-current-section-hidden {
   display: none;
+}
+
+.section-meter-settings-preview-pin {
+  color: var(--text-faint);
+}
+
+.section-meter-settings-preview-pin.is-active {
+  color: var(--interactive-accent);
+}
+
+.section-meter-settings-preview-slot {
+  min-inline-size: 0;
+}
+
+.section-meter-settings-preview-slot > .section-meter-settings-preview-example {
+  block-size: 100%;
+  box-sizing: border-box;
+}
+
+.section-meter-setting-chips {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.setting-item-control .section-meter-setting-chip {
+  margin: 0;
+  padding-inline: 0.85em;
+  border-radius: 999px;
+  font-size: var(--font-ui-small);
+}
+
+.section-meter-setting-chip:not(.mod-cta) {
+  color: var(--text-muted);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--background-modifier-border-hover);
+}
+
+.section-meter-setting-chip:not(.mod-cta):hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+/* The plugin keeps the visible settings still while the preview resizes. */
+.section-meter-settings-scroller {
+  overflow-anchor: none;
 }

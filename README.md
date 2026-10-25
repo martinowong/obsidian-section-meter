@@ -50,7 +50,7 @@ The easiest way to manage a target is through the command palette. Place the cur
 - **Remove whole-note writing target**
 - **Remove current-section writing target**
 
-Choose words, characters, or reading time in the target dialog. Existing targets are filled in automatically when you edit them.
+Choose words, characters, or reading time in the target dialog, or type a unit directly, such as `250w`, `1800 chars`, `3m`, or `45s`. Existing targets are filled in automatically when you edit them.
 
 Beside a heading, tap the statistics portion of a badge to open **Copy statistics**. Tap its separate **Target** label, value, or progress bar for **Edit target** and **Remove target**. These menus work in both the editor and Reading view; you can also right-click or use the keyboard. Ordinary statistics badges never offer target actions. The mobile sticky meter keeps its existing tap behavior.
 
@@ -91,14 +91,15 @@ Supported formats include:
 - `Target: 3 min`
 - `Target: 3m`
 - `Target: 2m 30s`
+- `Target: 45s`
 
-`Target` is case-insensitive. The colon is optional, but a colon or whitespace must separate the marker from the amount, and an explicit unit is required. Targets must occupy the entire line, not appear inside prose, a list, a quote, code, or frontmatter. Counts must be positive whole numbers; commas must group thousands correctly. In durations, seconds must be between 0 and 59.
+`Target` is case-insensitive. The colon is optional, but a colon or whitespace must separate the marker from the amount, and an explicit unit is required. Targets must occupy the entire line, not appear inside prose, a list, a quote, code, or frontmatter. Counts must be positive whole numbers; commas must group thousands correctly. A duration can be minutes, seconds, or both; when combined with minutes, seconds must be between 0 and 59.
 
 For example, `Target: 500`, `Target500w`, `Target: +300 words`, `Target: 1,00 words`, and `Target: 500 words today` are not targets and remain ordinary note text.
 
 Target lines are excluded from the statistics. A parent target covers the complete parent section, including nested headings. A nested section can define its own target, which takes priority while the cursor is inside that section.
 
-Progress bars update while you write. They change colour as the target approaches, turn green when it is reached, and turn red after the configured overage threshold.
+Progress bars update while you write. They use your theme's accent colour while you work toward a target, turn green with a ✓ when it is reached, and turn orange after the configured overage threshold. In **Remaining** mode the label counts down ("25 words left") and then shows how far past the target you are ("90 words over"). Prefer the original yellow, green, and red bars? Turn on **Classic progress colours** in settings.
 
 ## What is counted
 
@@ -118,16 +119,13 @@ Character counts can include or exclude spaces. Reading-time estimates use an ad
 
 Heading and title badges work in both the editor and Reading view, using the same display and counting settings. Writing-target commands and selected-text statistics are available while editing.
 
-You can configure:
+Settings are grouped by what you're adjusting, with a live preview at the top that you can pin while you scroll:
 
-- Word count, character count, and reading-time visibility
-- Heading badges, title badges, and status-bar statistics
-- Compact labels and custom separators
-- Count, percentage, or remaining target labels
-- Reading speed and character-count spacing
-- The target overage warning threshold
-- Whether empty or very short sections show badges
-- Whole-note and selected-text status-bar statistics
+- **Badges:** show stats beside headings and below the note title, choose words, reading time, or characters, and hide sections shorter than a word count
+- **Status bar:** whole-note and selected-text stats, with their own choice of words, reading time, or characters
+- **Writing targets:** count, percentage, or remaining labels; theme-accent or classic progress colours; the overage warning; target lines as chips; reached notifications; quick presets; and the mobile sticky meter
+- **Label format:** compact labels, minutes-only reading time, and the separator
+- **Counting:** reading speed and whether character counts include spaces
 
 ## Limitations
 

@@ -7,6 +7,7 @@ import {
   formatReadingTime,
   formatSeconds,
   formatWritingTargetCountLabel,
+  formatWritingTargetLine,
   getNextTargetProgressLabelStyle,
   getActiveSectionTargetAtPosition,
   getActiveSectionTargetSummaryAtPosition,
@@ -44,6 +45,8 @@ const settings = {
   targetProgressLabelStyle: "count" as const,
   targetPresets: "250 words, 500 words, 10m",
   notifyOnTargetReached: false,
+  classicTargetColors: false,
+  showTargetChips: true,
   mobileStickySectionMeter: false,
   mobileMeterPosition: "bottom" as const,
   previewSticky: true
@@ -550,6 +553,15 @@ describe("parseWritingTargetLine", () => {
     expect(parseWritingTargetLine("Target: 12,345,678 words")?.targetValue).toBe(12345678);
     expect(parseWritingTargetLine("Target: 0m 30s")).toEqual({ metric: "reading-time", targetValue: 30 });
   });
+
+  it("accepts seconds-only reading-time targets and writes short ones without minutes", () => {
+    expect(parseWritingTargetLine("Target: 30s")).toEqual({ metric: "reading-time", targetValue: 30 });
+    expect(parseWritingTargetLine("target 45 sec")).toEqual({ metric: "reading-time", targetValue: 45 });
+    expect(parseWritingTargetLine("Target: 90s")).toEqual({ metric: "reading-time", targetValue: 90 });
+    expect(parseWritingTargetLine("Target: 0s")).toBeNull();
+    expect(formatWritingTargetLine({ metric: "reading-time", targetValue: 30 })).toBe("Target: 30s");
+    expect(formatWritingTargetLine({ metric: "reading-time", targetValue: 150 })).toBe("Target: 2m 30s");
+  });
 });
 
 describe("writing target progress", () => {
@@ -811,6 +823,23 @@ describe("writing target progress", () => {
     })[0];
 
     expect(summary.target?.label).toBe("Reached");
+  });
+
+  it("labels exceeded remaining targets with the overage", () => {
+    const remainingSettings = { ...settings, targetProgressLabelStyle: "remaining" as const };
+    const wordTarget = summarizeSectionReadingTimes(
+      "# Draft\nTarget: 2 words\none two three", remainingSettings)[0];
+    const characterTarget = summarizeSectionReadingTimes(
+      "# Draft\nTarget: 3 characters\nhello", remainingSettings)[0];
+    const timedTarget = summarizeSectionReadingTimes([
+      "# Timed",
+      "Target: 1m",
+      Array.from({ length: 300 }, (_, index) => `word${index}`).join(" ")
+    ].join("\n"), remainingSettings)[0];
+
+    expect(wordTarget.target?.label).toBe("1 word over");
+    expect(characterTarget.target?.label).toBe("2 characters over");
+    expect(timedTarget.target?.label).toBe("0m 30s over");
   });
 });
 

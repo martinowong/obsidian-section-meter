@@ -11,7 +11,11 @@ const host = vi.hoisted(() => ({ extensions: [] as unknown[], tabs: [] as unknow
   menus: [] as { title: string; run: () => unknown }[][] }));
 
 // Obsidian is the external host. CodeMirror and the plugin run unmocked.
-vi.mock("obsidian", () => ({
+vi.mock("obsidian", async () => ({
+  editorLivePreviewField: (await import("@codemirror/state")).StateField.define({
+    create: () => false, update: (value: boolean) => value
+  }),
+  setIcon: (parent: HTMLElement, iconId: string) => { parent.dataset.icon = iconId; },
   Plugin: class {
     constructor(public app: unknown) {}
     async loadData() { return {}; }
@@ -56,8 +60,8 @@ vi.mock("obsidian", () => ({
     showAtPosition() { host.menus.push(this.items); return this; }
   }
 }));
-import SectionMeterPlugin, { createSectionMeterExtension } from "../main";
-import { MarkdownView } from "obsidian";
+import SectionMeterPlugin, { createSectionMeterExtension, createWritingTargetPresetButtons, parseWritingTargetInput } from "../main";
+import { MarkdownView, editorLivePreviewField } from "obsidian";
 
 const editors: EditorView[] = [];
 
@@ -379,6 +383,61 @@ describe("editor badge integration", () => {
     plugin.onunload();
   });
 
+  it("switches progress colours with the classic setting and cleans up on unload", async () => {
+    const app = { vault: { on: () => ({}) }, workspace: {
+      getLeavesOfType: () => [], getActiveViewOfType: () => null,
+      on: () => ({}), onLayoutReady: () => {}
+    }} as unknown as App;
+    const plugin = new SectionMeterPlugin(app, {} as PluginManifest);
+    await plugin.onload();
+    const isClassic = () => document.body.classList.contains("section-meter-classic-target-colors");
+    expect(isClassic()).toBe(false);
+
+    plugin.settings.classicTargetColors = true;
+    await plugin.saveSettings({ refreshStats: false });
+    expect(isClassic()).toBe(true);
+
+    plugin.onunload();
+    expect(isClassic()).toBe(false);
+  });
+
+  it("marks target labels with their progress state for colours and the reached check", () => {
+    const editor = createEditor("# Done\nTarget: 2 words\none two\n# Over\nTarget: 2 words\none two three");
+    const labels = [...editor.dom.querySelectorAll(".section-meter-badge .section-meter-target-label")];
+    expect(labels.map((label) => label.classList.contains("section-meter-target-complete"))).toEqual([true, false]);
+    expect(labels.map((label) => label.classList.contains("section-meter-target-overage"))).toEqual([false, true]);
+  });
+
+  it("shows valid target lines as chips in Live Preview without changing the Markdown", () => {
+    const doc = "# Draft\nTarget: 250 words\nTarget: 500\n```\nTarget: 9 words\n```\nHello";
+    const createChipEditor = (livePreview: boolean, showTargetChips = true) => {
+      const editor = new EditorView({ parent: document.body, state: EditorState.create({
+        doc,
+        selection: { anchor: doc.length },
+        extensions: [editorLivePreviewField.init(() => livePreview),
+          createSectionMeterExtension(() => ({ ...new SectionMeterPlugin({} as App, {} as PluginManifest).settings, showTargetChips }),
+            () => {}, () => {}, () => {}, () => {})]
+      }) });
+      editors.push(editor);
+      return editor;
+    };
+    const chipValues = (editor: EditorView) => [...editor.dom.querySelectorAll(".section-meter-target-chip-value")]
+      .map((chip) => chip.textContent);
+
+    expect(chipValues(createChipEditor(false))).toEqual([]);
+    expect(chipValues(createChipEditor(true, false))).toEqual([]);
+    const editor = createChipEditor(true);
+    expect(chipValues(editor)).toEqual(["250 words"]);
+
+    editor.dom.querySelector<HTMLElement>(".section-meter-target-chip")!.click();
+    expect(editor.state.selection.main.head).toBe(editor.state.doc.line(2).to);
+    expect(chipValues(editor)).toEqual([]);
+    expect(editor.state.doc.toString()).toBe(doc);
+
+    editor.dispatch({ selection: { anchor: doc.length } });
+    expect(chipValues(editor)).toEqual(["250 words"]);
+  });
+
   it("seeds a new file even when it shares the previous note's exact content", () => {
     let identity = "first.md";
     const reached = vi.fn();
@@ -403,18 +462,130 @@ describe("editor badge integration", () => {
     plugin.settings.showTiming = false;
     plugin.settings.showCharacters = false;
     const tab = host.tabs[0] as { getSettingDefinitions(): import("obsidian").SettingDefinitionItem[] };
-    const group = tab.getSettingDefinitions().find((item) => "heading" in item && item.heading === "Badge display") as import("obsidian").SettingDefinitionGroup;
-    const definition = group.items!.find((item) => "name" in item && item.name === "Word count") as import("obsidian").SettingDefinition;
-    let change: (value: boolean) => Promise<void> = async () => {};
-    const toggle = { setValue: () => toggle, setDisabled: () => toggle,
-      onChange: (callback: typeof change) => { change = callback; return toggle; } };
-    const row = { setName: () => row, setDesc: () => row,
-      addToggle: (callback: (control: typeof toggle) => void) => { callback(toggle); return row; } };
+    const group = tab.getSettingDefinitions().find((item) => "heading" in item && item.heading === "Badges") as import("obsidian").SettingDefinitionGroup;
+    const definition = group.items!.find((item) => "name" in item && item.name === "Show") as import("obsidian").SettingDefinition;
+    const chips = new Map<string, () => Promise<void>>();
+    const pressed = new Map<string, string>();
+    const row = { setName: () => row, setDesc: () => row, controlEl: document.createElement("div"),
+      addButton: (callback: (button: unknown) => void) => {
+        let label = "";
+        const buttonEl = document.createElement("button");
+        const button = { buttonEl,
+          setButtonText: (text: string) => { label = text; return button; },
+          onClick: (run: () => Promise<void>) => { chips.set(label, run); return button; } };
+        callback(button);
+        pressed.set(label, buttonEl.getAttribute("aria-pressed") ?? "");
+        return row;
+      } };
     definition.render!(row as unknown as import("obsidian").Setting, {} as import("obsidian").SettingGroup);
+    expect([...pressed]).toEqual([["Words", "true"], ["Reading time", "false"], ["Characters", "false"]]);
+    const change = async (_value: boolean) => chips.get("Words")!();
     await change(false);
     expect(plugin.settings.showWords).toBe(false);
     expect(plugin.settings.showTiming).toBe(true);
     expect(host.settingsUpdates).toBe(1);
+    plugin.onunload();
+  });
+
+  it("scrolls by the same amount the pinned preview grows or shrinks", async () => {
+    let resized: () => void = () => {};
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: () => void) { resized = callback; }
+      observe() {}
+      disconnect() {}
+    });
+    type CreateOptions = { cls?: string; text?: string; attr?: Record<string, string> };
+    const create = (parent: HTMLElement, tag: string, options: CreateOptions = {}) => {
+      const element = document.createElement(tag);
+      if (options.cls) element.className = options.cls;
+      if (options.text) element.textContent = options.text;
+      for (const [name, value] of Object.entries(options.attr ?? {})) element.setAttribute(name, value);
+      parent.appendChild(element);
+      return element;
+    };
+    Object.assign(HTMLElement.prototype, {
+      createDiv(this: HTMLElement, options?: CreateOptions) { return create(this, "div", options); },
+      createSpan(this: HTMLElement, options?: CreateOptions) { return create(this, "span", options); },
+      createEl(this: HTMLElement, tag: string, options?: CreateOptions) { return create(this, tag, options); }
+    });
+    const app = { vault: { on: () => ({}) }, workspace: {
+      getLeavesOfType: () => [], getActiveViewOfType: () => null,
+      on: () => ({}), onLayoutReady: () => {}
+    }} as unknown as App;
+    const plugin = new SectionMeterPlugin(app, {} as PluginManifest);
+    await plugin.onload();
+    const scroller = document.createElement("div");
+    scroller.style.overflowY = "auto";
+    let scrollTop = 50;
+    Object.defineProperty(scroller, "scrollTop", { get: () => scrollTop, set: (value: number) => { scrollTop = value; } });
+    const group = document.createElement("div");
+    group.className = "section-meter-settings-preview-group";
+    const settingEl = document.createElement("div");
+    group.append(settingEl);
+    scroller.append(group);
+    document.body.append(scroller);
+    let height = 100;
+    group.getBoundingClientRect = () => ({ height, top: 0, bottom: height } as DOMRect);
+
+    const tab = host.tabs[0] as { getSettingDefinitions(): import("obsidian").SettingDefinitionItem[] };
+    const previewGroup = tab.getSettingDefinitions()[0] as import("obsidian").SettingDefinitionGroup;
+    const preview = previewGroup.items![0] as import("obsidian").SettingDefinition;
+    preview.render!({ settingEl } as unknown as import("obsidian").Setting, {} as import("obsidian").SettingGroup);
+
+    resized();
+    expect(scrollTop).toBe(50);
+    expect(scroller.classList.contains("section-meter-settings-scroller")).toBe(true);
+    height = 130;
+    resized();
+    expect(scrollTop).toBe(80);
+    height = 110;
+    resized();
+    expect(scrollTop).toBe(60);
+    plugin.onunload();
+  });
+
+  it("keeps target dialog presets from submitting the form when Enter is pressed", () => {
+    // Mirrors Obsidian's createEl, which applies `type` only to inputs and styles.
+    Object.assign(HTMLElement.prototype, {
+      createEl(this: HTMLElement, tag: string, options: { text?: string; cls?: string; type?: string;
+        attr?: Record<string, string> } = {}) {
+        const element = document.createElement(tag);
+        if (options.cls) element.className = options.cls;
+        if (options.text) element.textContent = options.text;
+        for (const [name, value] of Object.entries(options.attr ?? {})) element.setAttribute(name, value);
+        if (options.type && element instanceof HTMLInputElement) element.type = options.type;
+        this.appendChild(element);
+        return element;
+      }
+    });
+    const form = document.createElement("form");
+    const picked: string[] = [];
+    createWritingTargetPresetButtons(form, [{ metric: "words", targetValue: 250 }], () => picked.push("250"));
+    const button = form.querySelector("button")!;
+    expect(button.type).toBe("button");
+    button.click();
+    expect(picked).toEqual(["250"]);
+  });
+
+  it("uses a unit typed in the target dialog instead of the selected measure", () => {
+    expect(parseWritingTargetInput("words", "30s")).toEqual({ metric: "reading-time", targetValue: 30 });
+    expect(parseWritingTargetInput("reading-time", "250w")).toEqual({ metric: "words", targetValue: 250 });
+    expect(parseWritingTargetInput("words", "1,800 chars")).toEqual({ metric: "characters", targetValue: 1800 });
+    expect(parseWritingTargetInput("words", "250")).toEqual({ metric: "words", targetValue: 250 });
+    expect(parseWritingTargetInput("reading-time", "3")).toEqual({ metric: "reading-time", targetValue: 180 });
+    expect(parseWritingTargetInput("words", "30 apples")).toBeNull();
+  });
+
+  it("migrates hide empty sections to a one-word minimum", async () => {
+    const app = { vault: { on: () => ({}) }, workspace: {
+      getLeavesOfType: () => [], getActiveViewOfType: () => null,
+      on: () => ({}), onLayoutReady: () => {}
+    }} as unknown as App;
+    const plugin = new SectionMeterPlugin(app, {} as PluginManifest);
+    plugin.loadData = async () => ({ hideEmptySections: true, minimumWordCount: 0 });
+    await plugin.onload();
+    expect(plugin.settings.minimumWordCount).toBe(1);
+    expect(plugin.settings.hideEmptySections).toBe(false);
     plugin.onunload();
   });
 

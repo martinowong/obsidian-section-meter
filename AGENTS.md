@@ -13,10 +13,23 @@ The plugin is written in TypeScript and bundled into `main.js` with esbuild.
 ├── main.ts                    # Obsidian plugin, editor UI, status bar, settings
 ├── src/
 │   ├── readingTime.ts         # Markdown parsing, counting, targets, formatting
-│   └── readingTime.test.ts    # Unit and regression tests
+│   ├── readingView.ts         # Reading view heading badges
+│   ├── headingDecorations.ts  # Decides when edits require heading badge refreshes
+│   ├── targetCompletion.ts    # Detects newly reached targets for notifications
+│   ├── test/obsidianHost.ts   # `obsidian` module alias used by Vitest
+│   ├── readingTime.test.ts    # Counting, parsing, and target regression tests
+│   ├── editorIntegration.test.ts   # Plugin, editor, and Reading view integration tests
+│   ├── headingDecorations.test.ts
+│   └── targetCompletion.test.ts
+├── scripts/
+│   ├── build-local.mjs        # Production build stamped with a local build label
+│   └── install-test-vault.mjs # Copies the build and fixture note into a test vault
+├── test-vault/                # Fixture note for manual testing in Obsidian
 ├── styles.css                 # Badges, progress bars, settings, status bar
 ├── main.js                    # Generated production bundle
 ├── esbuild.config.mjs         # Development and production bundling
+├── eslint.config.mjs          # Obsidian plugin lint rules
+├── vitest.config.ts           # Test configuration
 ├── manifest.json              # Obsidian plugin metadata and version
 ├── versions.json              # Plugin versions and minimum Obsidian versions
 ├── package.json               # Scripts, dependencies, package version
@@ -54,6 +67,8 @@ Use `main.ts` for:
 - Settings controls and migration
 - DOM creation and interaction
 
+Small, testable helpers live beside it in `src/`: `readingView.ts` for Reading view badges, `headingDecorations.ts` for deciding when edits need a heading refresh, and `targetCompletion.ts` for target-reached notifications.
+
 ### Appearance
 
 Use `styles.css` for all visual changes, including badges, target progress bars, status-bar elements, and settings guidance.
@@ -61,6 +76,8 @@ Use `styles.css` for all visual changes, including badges, target progress bars,
 ### Tests
 
 Add tests to `src/readingTime.test.ts` for changes involving parsing, counting, section boundaries, formatting, or writing targets.
+
+Add tests to `src/editorIntegration.test.ts` for plugin, editor, badge, status-bar, and Reading view behavior. Vitest aliases the `obsidian` module to `src/test/obsidianHost.ts`.
 
 Regression fixes should include a test that fails before the fix and passes afterward.
 
@@ -118,6 +135,19 @@ Start the development watcher:
 
 ```sh
 npm run dev
+```
+
+Install a local build and the fixture note into a test vault (set `SECTION_METER_TEST_VAULT` to the vault's absolute path):
+
+```sh
+npm run install:test-vault
+npm run refresh:test-vault   # build:local, then install
+```
+
+Check that a release is ready (tests, lint, build, and an up-to-date `main.js`):
+
+```sh
+npm run verify:release
 ```
 
 ## Validation

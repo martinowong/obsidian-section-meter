@@ -31,6 +31,7 @@ import type {
 import {
   SectionMeterSettings,
   SectionMeterSummary,
+  NoteMeterSummary,
   ReadingTimeSummaries,
   LegacyLabelStyle,
   WritingTarget,
@@ -104,6 +105,7 @@ const MAX_TARGET_OVERAGE_WARNING_PERCENT = 200;
 const TARGET_OVERAGE_WARNING_PERCENT_STEP = 5;
 const DOCUMENT_STATS_UPDATE_DELAY_MS = 120;
 const SELECTION_BADGE_UPDATE_DELAY_MS = 220;
+const SELECTION_STATS_INTERVAL_MS = 50;
 const TITLE_BADGE_UPDATE_DELAY_MS = DOCUMENT_STATS_UPDATE_DELAY_MS + 40;
 const PREVIEW_WORD_COUNT = 640;
 const PREVIEW_TARGET_WORD_COUNT = 163;
@@ -125,6 +127,7 @@ export default class SectionMeterPlugin extends Plugin {
   private readingViewChildren = new Set<ReadingViewStats>();
   private readingViewChunks = new WeakMap<HTMLElement, ReadingViewStats>();
   private readingViewContent = new WeakMap<MarkdownView, { markdown: string; settingsKey: string }>();
+  private titleSummaryCache = new WeakMap<MarkdownView, { markdown: string; settingsKey: string; summary: NoteMeterSummary }>();
   private readingViewRefreshFrame: number | null = null;
   private readingViewCache = new Map<string, {
     markdown: string;
@@ -210,6 +213,10 @@ export default class SectionMeterPlugin extends Plugin {
       this.app.workspace.on("window-close", (workspaceWindow) => {
         this.targetColorDocuments.delete(workspaceWindow.doc);
       })
+    );
+    this.registerEvent(
+      // Themes and snippets can change the title's spacing, which badges copy when created.
+      this.app.workspace.on("css-change", () => this.refreshTitleBadges(true))
     );
     this.registerEvent(
       this.app.workspace.on("layout-change", () => {
@@ -565,10 +572,10 @@ export default class SectionMeterPlugin extends Plugin {
     });
   }
 
-  private refreshTitleBadges() {
+  private refreshTitleBadges(force = false) {
     this.app.workspace.getLeavesOfType("markdown").forEach((leaf) => {
       if (leaf.view instanceof MarkdownView) {
-        this.refreshTitleBadge(leaf.view);
+        this.refreshTitleBadge(leaf.view, force);
       }
     });
   }
@@ -674,24 +681,28 @@ export default class SectionMeterPlugin extends Plugin {
     this.titleBadgeUpdateTimers.set(markdownView, timer);
   }
 
-  private refreshTitleBadge(markdownView: MarkdownView) {
+  private refreshTitleBadge(markdownView: MarkdownView, force = false) {
     if (this.unloaded) return;
     const container = markdownView.containerEl;
-    removeTitleBadge(container);
-
-    if (!this.settings.enabled || !this.settings.showInlineTitleStats) {
-      return;
-    }
-
     const titleEl = container.querySelector<HTMLElement>(".inline-title");
     const titleRow = titleEl?.parentElement;
-    if (!titleEl || !titleRow) {
+    if (!this.settings.enabled || !this.settings.showInlineTitleStats || !titleEl || !titleRow) {
+      removeTitleBadge(container);
       return;
     }
 
-    const editorView = getEditorView(markdownView);
-    const summary = (editorView && markdownView.getMode() !== "preview" ? this.getCachedReadingTimes(editorView)?.note : null)
-      ?? summarizeNoteReadingTime(markdownView.getViewData(), this.settings);
+    const summary = this.getTitleSummary(markdownView);
+    const renderKey = JSON.stringify([summary.label, summary.wordCount, summary.characterCount, summary.seconds,
+      summary.target?.label, summary.target && getTargetProgressStateClass(summary.target),
+      summary.target && Math.round(summary.target.percent)]);
+    const existing = titleEl.nextElementSibling;
+    // Typing pauses and layout changes often leave the numbers unchanged; skip rebuilding then.
+    if (!force && existing instanceof HTMLElement
+      && existing.classList.contains("section-meter-title-badge") && existing.dataset.renderKey === renderKey) {
+      return;
+    }
+
+    removeTitleBadge(container);
     const badge = createReadingTimeBadge(
       summary.label,
       summary.wordCount,
@@ -702,6 +713,7 @@ export default class SectionMeterPlugin extends Plugin {
       false,
       "Whole note stats"
     );
+    badge.dataset.renderKey = renderKey;
     // Never put UI inside `.inline-title`: Obsidian serializes that element as
     // the note title, including `contenteditable=false` children. An in-flow
     // sibling reserves its own height without changing the title's alignment.
@@ -710,6 +722,24 @@ export default class SectionMeterPlugin extends Plugin {
     titleRow.addClass("section-meter-title-row");
     badge.setAttribute("aria-hidden", "true");
     titleEl.insertAdjacentElement("afterend", badge);
+  }
+
+  /** Whole-note stats for a title badge: the editor's cached counts, or a count kept per unchanged note. */
+  private getTitleSummary(markdownView: MarkdownView): NoteMeterSummary {
+    const editorView = getEditorView(markdownView);
+    const cached = editorView && markdownView.getMode() !== "preview"
+      ? this.getCachedReadingTimes(editorView)?.note
+      : null;
+    if (cached) return cached;
+
+    const markdown = markdownView.getViewData();
+    const settingsKey = getReadingTimeSettingsKey(this.settings);
+    const previous = this.titleSummaryCache.get(markdownView);
+    if (previous?.markdown === markdown && previous.settingsKey === settingsKey) return previous.summary;
+
+    const summary = summarizeNoteReadingTime(markdown, this.settings);
+    this.titleSummaryCache.set(markdownView, { markdown, settingsKey, summary });
+    return summary;
   }
 
   private updateStatusBar(status: StatusBarStats | null) {
@@ -1051,6 +1081,10 @@ export function createSectionMeterExtension(
     private documentIdentity: string | null;
     private selectionBadgeUpdateTimer: number | null = null;
     private selectionBadgeRefreshQueued = false;
+    private selectionStatsCache: { doc: Text; key: string; stats: SelectionStats | null } | null = null;
+    private selectionStatsComputedAt = Number.NEGATIVE_INFINITY;
+    private selectionStatsTimer: number | null = null;
+    private selectionStatsRefreshQueued = false;
     private documentStatsUpdateTimer: number | null = null;
     private documentStatsRefreshQueued = false;
     private documentStatsRefreshDeferred = false;
@@ -1152,6 +1186,10 @@ export function createSectionMeterExtension(
         this.applySelectionBadgeOverride = true;
         shouldRebuildDecorations = true;
       }
+      if (this.selectionStatsRefreshQueued) {
+        this.selectionStatsRefreshQueued = false;
+        shouldRebuildDecorations = true;
+      }
 
       if (update.selectionSet || update.focusChanged) {
         if (this.documentStatsRefreshDeferred && !this.selectionIsInsideHeading(update.view)) {
@@ -1185,6 +1223,9 @@ export function createSectionMeterExtension(
       }
       if (this.documentStatsUpdateTimer !== null) {
         window.clearTimeout(this.documentStatsUpdateTimer);
+      }
+      if (this.selectionStatsTimer !== null) {
+        window.clearTimeout(this.selectionStatsTimer);
       }
 
       if (this.mobileMeterScrollDom && this.mobileMeterScrollHandler) {
@@ -1254,6 +1295,45 @@ export function createSectionMeterExtension(
       this.selectionBadgeRefreshQueued = false;
     }
 
+    /**
+     * Dragging a selection changes it on every pointer move. Reuse the count for
+     * an unchanged selection, recount at most once per interval while it moves,
+     * and catch up once the pointer settles so the final numbers are exact.
+     */
+    private getSelectionStats(view: EditorView): SelectionStats | null {
+      const key = getSelectionKey(view);
+      if (!key) {
+        return null;
+      }
+
+      const cached = this.selectionStatsCache;
+      if (cached?.doc === view.state.doc && cached.key === key) {
+        return cached.stats;
+      }
+
+      if (cached && performance.now() - this.selectionStatsComputedAt < SELECTION_STATS_INTERVAL_MS) {
+        this.queueSelectionStatsRefresh(view);
+        return cached.stats;
+      }
+
+      const stats = summarizeSelection(view, getSettings());
+      this.selectionStatsCache = { doc: view.state.doc, key, stats };
+      this.selectionStatsComputedAt = performance.now();
+      return stats;
+    }
+
+    private queueSelectionStatsRefresh(view: EditorView) {
+      if (this.selectionStatsTimer !== null) {
+        return;
+      }
+
+      this.selectionStatsTimer = window.setTimeout(() => {
+        this.selectionStatsTimer = null;
+        this.selectionStatsRefreshQueued = true;
+        view.dispatch({});
+      }, SELECTION_STATS_INTERVAL_MS);
+    }
+
     private selectionIsInsideHeading(view: EditorView): boolean {
       return view.state.selection.ranges.some((range) => selectionIntersectsHeading(
         range.from,
@@ -1269,7 +1349,8 @@ export function createSectionMeterExtension(
         view,
         settings,
         this.summaries,
-        this.noteSummary
+        this.noteSummary,
+        this.getSelectionStats(view)
       );
       const selectionOverride = this.applySelectionBadgeOverride && statusBarStats.selection
         ? getHeadingSelectionOverride(view, this.summaries, statusBarStats.selection)
@@ -1598,7 +1679,7 @@ function renderMobileSectionMeter(
   meterEl.querySelector(".section-meter-mobile-current-section-label")
     ?.classList.toggle("section-meter-target-complete", stateClass === "section-meter-target-complete");
   const progressFillEl = meterEl.querySelector<HTMLElement>(".section-meter-mobile-current-section-progress-fill")!;
-  progressFillEl.style.width = `${Math.min(100, Math.max(0, target.percent))}%`;
+  progressFillEl.style.setProperty("--section-meter-progress", `${Math.min(100, Math.max(0, target.percent))}%`);
 
   const percentageEl = meterEl.querySelector<HTMLElement>(".section-meter-mobile-current-section-percentage")!;
   percentageEl.textContent = `${Math.round(target.percent)}%`;
@@ -2789,48 +2870,37 @@ function getStatusBarStats(
   view: EditorView,
   settings: SectionMeterSettings,
   summaries: SectionMeterSummary[],
-  note: ReturnType<typeof summarizeNoteReadingTime>
+  note: ReturnType<typeof summarizeNoteReadingTime>,
+  selection: SelectionStats | null = summarizeSelection(view, settings)
 ): StatusBarStats {
-  const sectionTarget = getSectionTargetAtSelection(view, summaries);
-  const selectedRanges = view.state.selection.ranges.filter((range) => !range.empty);
-  if (selectedRanges.length === 0) {
-    return {
-      note,
-      selection: null,
-      sectionTarget
-    };
-  }
+  return {
+    note,
+    selection,
+    sectionTarget: getSectionTargetAtSelection(view, summaries)
+  };
+}
 
-  const selectedText = selectedRanges
+function getSelectionKey(view: EditorView): string {
+  return view.state.selection.ranges
+    .filter((range) => !range.empty)
+    .map((range) => `${range.from}:${range.to}`)
+    .join(",");
+}
+
+function summarizeSelection(view: EditorView, settings: SectionMeterSettings): SelectionStats | null {
+  const selectedText = view.state.selection.ranges
+    .filter((range) => !range.empty)
     .map((range) => view.state.sliceDoc(range.from, range.to))
     .join("\n")
     .trim();
-
   if (!selectedText) {
-    return {
-      note,
-      selection: null,
-      sectionTarget
-    };
+    return null;
   }
 
   const selection = summarizeNoteReadingTime(selectedText, settings);
-  if (selection.wordCount === 0 && selection.characterCount === 0) {
-    return {
-      note,
-      selection: null,
-      sectionTarget
-    };
-  }
-
-  return {
-    note,
-    selection: {
-      ...selection,
-      target: null
-    },
-    sectionTarget
-  };
+  return selection.wordCount === 0 && selection.characterCount === 0
+    ? null
+    : { ...selection, target: null };
 }
 
 function getSectionTargetAtSelection(
@@ -3019,10 +3089,19 @@ function formatConfiguredStats(
   });
 }
 
+// Saving replaces the settings object (normalizeSettings), so a key cached per
+// object can never go stale; this avoids re-serializing on every cache check.
+const readingTimeSettingsKeys = new WeakMap<SectionMeterSettings, string>();
+
 function getReadingTimeSettingsKey(settings: SectionMeterSettings): string {
-  // These preferences change controls/placement, not parsed statistics or labels.
-  return JSON.stringify({ ...settings, previewSticky: null, mobileMeterPosition: null,
-    targetPresets: null, notifyOnTargetReached: null, classicTargetColors: null, showTargetChips: null });
+  let key = readingTimeSettingsKeys.get(settings);
+  if (key === undefined) {
+    // These preferences change controls/placement, not parsed statistics or labels.
+    key = JSON.stringify({ ...settings, previewSticky: null, mobileMeterPosition: null,
+      targetPresets: null, notifyOnTargetReached: null, classicTargetColors: null, showTargetChips: null });
+    readingTimeSettingsKeys.set(settings, key);
+  }
+  return key;
 }
 
 function removeTitleBadge(container: HTMLElement): void {
@@ -3186,7 +3265,7 @@ function createTargetProgressEl(target: WritingTargetProgress): HTMLElement {
 
   const fillEl = createSpan();
   fillEl.className = "section-meter-target-progress-fill";
-  fillEl.style.width = `${Math.min(100, Math.max(0, target.percent))}%`;
+  fillEl.style.setProperty("--section-meter-progress", `${Math.min(100, Math.max(0, target.percent))}%`);
   progressEl.appendChild(fillEl);
   return progressEl;
 }

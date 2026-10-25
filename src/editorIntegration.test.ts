@@ -657,6 +657,42 @@ describe("editor badge integration", () => {
     expect(title.nextElementSibling?.className).toBe("metadata-container");
   });
 
+  it("reuses an unchanged title badge and recounts a note only when its text changes", async () => {
+    const container = document.createElement("div");
+    container.innerHTML = '<div class="markdown-source-view mod-cm6"><div class="cm-sizer"><div class="inline-title">Note</div><div class="cm-contentContainer"></div></div></div>';
+    document.body.append(container);
+    let markdown = "one two";
+    const markdownView = Object.assign(Object.create(MarkdownView.prototype) as MarkdownView, {
+      containerEl: container, getViewData: () => markdown, editor: {}
+    });
+    const app = { vault: { on: () => ({}) }, workspace: {
+      getLeavesOfType: () => [{ view: markdownView }],
+      getActiveViewOfType: () => null, on: () => ({}),
+      onLayoutReady: (callback: () => void) => callback()
+    }} as unknown as App;
+    const plugin = new SectionMeterPlugin(app, {} as PluginManifest);
+    await plugin.onload();
+    const refresh = (force?: boolean) => (plugin as unknown as { refreshTitleBadges(force?: boolean): void }).refreshTitleBadges(force);
+    const styleReads = vi.spyOn(window, "getComputedStyle");
+    const badge = container.querySelector(".section-meter-title-badge");
+
+    refresh();
+    refresh();
+    expect(container.querySelector(".section-meter-title-badge")).toBe(badge);
+    expect(styleReads).not.toHaveBeenCalled();
+
+    markdown = "one two three";
+    refresh();
+    const updated = container.querySelector(".section-meter-title-badge")!;
+    expect(updated).not.toBe(badge);
+    expect(updated.textContent).toContain("3 words");
+
+    refresh(true);
+    expect(container.querySelector(".section-meter-title-badge")).not.toBe(updated);
+    styleReads.mockRestore();
+    plugin.onunload();
+  });
+
   it("does not publish inactive editor statistics into the shared status bar", () => {
     const publish = vi.fn();
     const editor = createEditor("# Inactive\nhello", false, {
@@ -677,6 +713,27 @@ describe("editor badge integration", () => {
     expect(meter.dataset.targetPosition).toBe("0");
     meter.querySelector<HTMLElement>("[data-mobile-meter-action='edit-target']")!.click();
     expect(open).toHaveBeenCalledWith(editor, "section", 0);
+  });
+
+  it("throttles selection recounts while a selection moves, then settles on exact numbers", async () => {
+    const statuses: { selection: { wordCount: number } | null }[] = [];
+    const editor = createEditor("# Draft\none two three four five six", false, {
+      status: (status) => statuses.push(status as typeof statuses[number])
+    });
+    const textStart = editor.state.doc.line(2).from;
+    const selectWords = (count: number) => editor.dispatch({
+      selection: { anchor: textStart, head: textStart + "one two three four five six".split(" ").slice(0, count).join(" ").length }
+    });
+    const selectedWords = () => statuses.at(-1)?.selection?.wordCount;
+
+    selectWords(2);
+    expect(selectedWords()).toBe(2);
+    selectWords(4);
+    expect(selectedWords()).toBe(2);
+    await new Promise((resolve) => window.setTimeout(resolve, 80));
+    expect(selectedWords()).toBe(4);
+    editor.dispatch({ selection: { anchor: textStart } });
+    expect(statuses.at(-1)?.selection).toBeNull();
   });
 
   it("marks the mobile meter label as reached without relying on :has()", async () => {

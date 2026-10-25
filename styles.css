@@ -112,7 +112,20 @@ body.section-meter-classic-target-colors {
   block-size: 100%;
   border-radius: inherit;
   background: var(--text-faint);
-  transition: inline-size 240ms ease, background-color 240ms ease;
+  transition: transform 240ms ease, background-color 240ms ease;
+}
+
+/* Progress moves a full-width fill instead of resizing it, so updates skip layout.
+   The track clips the fill and rounds its leading end. */
+.section-meter-target-progress-fill,
+.section-meter-mobile-current-section-progress-fill {
+  inline-size: 100%;
+  transform: translateX(calc(var(--section-meter-progress, 0%) - 100%));
+}
+
+.section-meter-target-progress-fill:dir(rtl),
+.section-meter-mobile-current-section-progress-fill:dir(rtl) {
+  transform: translateX(calc(100% - var(--section-meter-progress, 0%)));
 }
 
 .section-meter-badge > .section-meter-target-separator {

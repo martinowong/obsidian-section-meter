@@ -6,6 +6,8 @@ Use this note after `npm run install:test-vault` to check the plugin in Obsidian
 
 This note deliberately contains targets, nested headings, punctuation, emoji 👋, inline code like `const ignored = true`, and a fenced code block. The count should include readable prose only, and the whole-note target should remain active in sections without their own target.
 
+In Live Preview, every valid target line in this note should appear as a chip. Click a chip: the plain `Target:` text must appear with the cursor at the end of the line, and the chip must return when the cursor leaves. Target lines inside comments, code, or prose must never become chips.
+
 ## Inherited target
 
 This section has no target of its own, so it should show the 100-word whole-note target. Edit this heading, delete and retype part of it, and move the cursor around it. The badge must not enter the editable heading or make the editor jump.
@@ -64,6 +66,12 @@ Target: 1m 30s
 
 This section checks the time target display. Change the reading speed in settings and confirm the time label and progress update.
 
+## Seconds-only target
+
+Target: 45s
+
+Its chip should read 45s read. In the target dialog, type 30s with Words selected: the measure must switch to Reading time, and pressing Enter must save 30 seconds rather than a quick target.
+
 ## Empty heading
 
 Type a heading title here, delete it, then type it again. The title and the badge must never merge or swap places.
@@ -94,4 +102,4 @@ alpha beta
 
 Target: 10 words today
 
-This is ordinary prose, not a valid target. Neither this section nor its heading badge should acquire its own target.
+This is ordinary prose, not a valid target. Neither this section nor its heading badge should acquire its own target, and the line must not become a chip.

@@ -17,7 +17,7 @@ Section Writing Stats places a small, continuously updated badge below the inlin
 - Track words, characters, and estimated reading time.
 - Add writing targets (words, characters, or reading time) for the whole note or an individual section.
 - Customize which statistics and labels are displayed.
-- Pause or resume all plugin counting and UI with **Toggle plugin on/off** in the command palette.
+- Pause or resume all plugin counting and UI with **Toggle plugin on/off** in the command palette, or hide just the badges or the status bar with **Toggle heading and title stats** and **Toggle status bar stats**.
 
 ## How sections are counted
 
@@ -50,9 +50,11 @@ The easiest way to manage a target is through the command palette. Place the cur
 - **Remove whole-note writing target**
 - **Remove current-section writing target**
 
+**Cycle target progress label** switches target labels between count, percentage, and remaining.
+
 Choose words, characters, or reading time in the target dialog, or type a unit directly, such as `250w`, `1800 chars`, `3m`, or `45s`. Existing targets are filled in automatically when you edit them.
 
-Beside a heading, tap the statistics portion of a badge to open **Copy statistics**. Tap its separate **Target** label, value, or progress bar for **Edit target** and **Remove target**. These menus work in both the editor and Reading view; you can also right-click or use the keyboard. Ordinary statistics badges never offer target actions. The mobile sticky meter keeps its existing tap behavior.
+Beside a heading, tap the statistics portion of a badge to open **Copy statistics**. Tap its separate target portion (the target icon, value, or progress bar) for **Edit target** and **Remove target**. These menus work in both the editor and Reading view; you can also right-click or use the keyboard. Ordinary statistics badges never offer target actions. The mobile sticky meter keeps its existing tap behavior.
 
 ### Targets in Markdown
 
@@ -97,9 +99,11 @@ Supported formats include:
 
 For example, `Target: 500`, `Target500w`, `Target: +300 words`, `Target: 1,00 words`, and `Target: 500 words today` are not targets and remain ordinary note text.
 
+In Live Preview, valid target lines appear as small chips with a target icon, showing the amount, such as **250 words**. Click a chip, or move the cursor onto its line, to see and edit the text as usual. The chip only changes how the line looks: the note always keeps the plain `Target:` line, and Source mode, Reading view, and other apps show it as text. Lines that aren't valid targets, such as `Target: 500`, stay as plain text, so you can tell at a glance whether a target was recognised. You can turn chips off with **Show target lines as chips** in settings.
+
 Target lines are excluded from the statistics. A parent target covers the complete parent section, including nested headings. A nested section can define its own target, which takes priority while the cursor is inside that section.
 
-Progress bars update while you write. They use your theme's accent colour while you work toward a target, turn green with a ✓ when it is reached, and turn orange after the configured overage threshold. In **Remaining** mode the label counts down ("25 words left") and then shows how far past the target you are ("90 words over"). Prefer the original yellow, green, and red bars? Turn on **Classic progress colours** in settings.
+Progress bars update while you write. They use your theme's accent colour while you work toward a target, turn green with a ✓ when it is reached, and turn orange after the configured overage threshold. In **Remaining** mode the label counts down ("25 words left") and then shows how far past the target you are ("90 words over"). Prefer the original yellow, green, and red bars? Choose **Classic** under **Progress colours** in settings.
 
 ## What is counted
 
@@ -166,7 +170,7 @@ npm run build:local
 SECTION_METER_TEST_VAULT="/absolute/path/to/test-vault" npm run install:test-vault
 ```
 
-The installer replaces `Section Writing Stats test cases.md` with the repository's fixture. Use Live Preview to check title/heading editing, target inheritance, comment exclusions, and horizontal rules. With two Markdown panes open, verify that the status bar follows the active pane and that tapping the mobile meter edits the displayed target rather than the cursor's section. Disable the plugin and confirm its title badges disappear without changing the note title.
+The installer replaces `Section Writing Stats test cases.md` with the repository's fixture. Use Live Preview to check title/heading editing, target chips, target inheritance, comment exclusions, and horizontal rules. With two Markdown panes open, verify that the status bar follows the active pane and that tapping the mobile meter edits the displayed target rather than the cursor's section. Disable the plugin and confirm its title badges disappear without changing the note title.
 
 ## License
 

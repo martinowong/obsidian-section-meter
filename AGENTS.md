@@ -170,7 +170,9 @@ Always run `git diff --check` before committing.
 
 Do not edit `main.js` manually. After changing TypeScript, run `npm run build` and commit the updated bundle with its source changes.
 
-Settings use Obsidian 1.13's declarative settings API so they appear in settings search. Keep setting names and descriptions in `getSettingDefinitions()` and use `this.update()` when conditional settings need to refresh.
+Settings use Obsidian 1.13's declarative settings API so they appear in settings search. Keep setting names and descriptions in `getSettingDefinitions()` and use `this.update()` when conditional settings need to refresh. When renaming a setting, keep its old name in `aliases` so searches still find it.
+
+Obsidian's `createEl` only applies the `type` option to inputs and style elements. For buttons inside forms, pass `attr: { type: "button" }`, or the button submits the form when Enter is pressed.
 
 ## Versioning and releases
 

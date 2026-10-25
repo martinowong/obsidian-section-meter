@@ -2,7 +2,7 @@ Target: 100 words
 
 # Section Writing Stats test cases
 
-Use this note after `npm run install:test-vault` to check the plugin in Obsidian's editor (Live Preview). Statistics are not displayed in Reading view.
+Use this note after `npm run install:test-vault` to check the plugin in Obsidian's editor (Live Preview) and Reading view. Switch between them: heading counts and target progress should agree, with one badge per heading and whole-note stats below the inline title. Change display settings while reading and confirm the badges update immediately.
 
 This note deliberately contains targets, nested headings, punctuation, emoji 👋, inline code like `const ignored = true`, and a fenced code block. The count should include readable prose only, and the whole-note target should remain active in sections without their own target.
 
@@ -67,3 +67,31 @@ This section checks the time target display. Change the reading speed in setting
 ## Empty heading
 
 Type a heading title here, delete it, then type it again. The title and the badge must never merge or swap places.
+
+## Repeated name
+
+one two
+
+## Repeated name
+
+one two three four
+
+These last two headings intentionally share a name. Their Reading-view badges must count their own sections, not match the first heading with that name.
+
+## Short target syntax
+
+target 20w
+
+one two three
+
+## Character target shorthand
+
+Target: 30 chars
+
+alpha beta
+
+## Target-like prose
+
+Target: 10 words today
+
+This is ordinary prose, not a valid target. Neither this section nor its heading badge should acquire its own target.

@@ -23,6 +23,21 @@
   min-inline-size: 0;
 }
 
+.section-meter-badge-action {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.section-meter-badge-action:hover {
+  color: var(--text-normal);
+}
+
+.section-meter-badge-action:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
 .section-meter-target-label {
   color: var(--text-muted);
 }
@@ -99,6 +114,14 @@
 
 .cm-line .section-meter-badge {
   opacity: 0.78;
+}
+
+.section-meter-reading-badge {
+  max-inline-size: 100%;
+  box-sizing: border-box;
+  white-space: normal;
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
 }
 
 .section-meter-title-row > .inline-title {

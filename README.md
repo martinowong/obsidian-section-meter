@@ -4,7 +4,7 @@
 
 Live word counts, character counts, reading time, and writing-target progress for every section of an Obsidian note.
 
-Section Writing Stats places a small, continuously updated badge beside the note title and each Markdown heading. It helps you check the length of a chapter, scene, article section, or complete note without interrupting your writing.
+Section Writing Stats places a small, continuously updated badge below the inline note title and beside each Markdown heading. It helps you check the length of a chapter, scene, article section, or complete note without interrupting your writing.
 
 [Install from Obsidian Community Plugins](https://community.obsidian.md/plugins/section-meter) · [Visit the website](https://martinowong.github.io/section-writing-stats-site/) · [View the latest release](https://github.com/martinowong/obsidian-section-meter/releases/latest)
 
@@ -12,7 +12,8 @@ Section Writing Stats places a small, continuously updated badge beside the note
 
 ![Section Writing Stats showing live word counts, character counts, reading time, and writing-target progress beside headings in Obsidian](https://martinowong.github.io/section-writing-stats-site/images/section-writing-stats-obsidian.png)
 
-- See live statistics beside headings, in the note title or in the status bar
+- See live statistics beside headings, below the note title, or in the status bar.
+- See heading and whole-note statistics in both the editor and Reading view.
 - Track words, characters, and estimated reading time.
 - Add writing targets (words, characters, or reading time) for the whole note or an individual section.
 - Customize which statistics and labels are displayed.
@@ -51,9 +52,11 @@ The easiest way to manage a target is through the command palette. Place the cur
 
 Choose words, characters, or reading time in the target dialog. Existing targets are filled in automatically when you edit them.
 
+Beside a heading, tap the statistics portion of a badge to open **Copy statistics**. Tap its separate **Target** label, value, or progress bar for **Edit target** and **Remove target**. These menus work in both the editor and Reading view; you can also right-click or use the keyboard. Ordinary statistics badges never offer target actions. The mobile sticky meter keeps its existing tap behavior.
+
 ### Targets in Markdown
 
-Targets are stored as ordinary `Target:` lines, so they remain visible and portable with the note. A whole-note target goes before the first heading, after YAML frontmatter if the note has any:
+Targets are stored as ordinary, standalone `Target` lines, so they remain visible and portable with the note. Command-palette actions always write the canonical `Target: ...` format. A whole-note target goes before the first heading, after YAML frontmatter if the note has any:
 
 ```md
 Target: 1200 words
@@ -82,10 +85,16 @@ Background text...
 Supported formats include:
 
 - `Target: 250 words`
+- `target 250w`
 - `Target: 1800 characters`
+- `Target 1,800 chars`
 - `Target: 3 min`
 - `Target: 3m`
 - `Target: 2m 30s`
+
+`Target` is case-insensitive. The colon is optional, but a colon or whitespace must separate the marker from the amount, and an explicit unit is required. Targets must occupy the entire line, not appear inside prose, a list, a quote, code, or frontmatter. Counts must be positive whole numbers; commas must group thousands correctly. In durations, seconds must be between 0 and 59.
+
+For example, `Target: 500`, `Target500w`, `Target: +300 words`, `Target: 1,00 words`, and `Target: 500 words today` are not targets and remain ordinary note text.
 
 Target lines are excluded from the statistics. A parent target covers the complete parent section, including nested headings. A nested section can define its own target, which takes priority while the cursor is inside that section.
 
@@ -107,6 +116,8 @@ Character counts can include or exclude spaces. Reading-time estimates use an ad
 
 ## Display and settings
 
+Heading and title badges work in both the editor and Reading view, using the same display and counting settings. Writing-target commands and selected-text statistics are available while editing.
+
 You can configure:
 
 - Word count, character count, and reading-time visibility
@@ -120,7 +131,7 @@ You can configure:
 
 ## Limitations
 
-- Statistics are shown in the editor, not Reading view.
+- Heading badges support `#`-style Markdown headings in both views, not underline-style (Setext) headings.
 - Counts are based on fast Markdown cleanup rather than Obsidian's complete renderer. Content produced by other plugins, rendered transclusions, and complex mathematics may differ slightly from what is visible on screen.
 
 ## Installation

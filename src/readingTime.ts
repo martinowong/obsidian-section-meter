@@ -363,7 +363,9 @@ export function countReadableCharacters(markdown: string, includeSpaces = true):
 }
 
 export function parseWritingTargetLine(line: string): WritingTarget | null {
-  const match = /^ {0,3}Target:\s*(.+?)\s*$/i.exec(line);
+  // An exact marker, explicit separator and unit keep ordinary prose intact.
+  if (/[\r\n]/.test(line)) return null;
+  const match = /^ {0,3}Target(?:[ \t]*:[ \t]*|[ \t]+)(.+)$/i.exec(line);
   if (!match) {
     return null;
   }
@@ -695,7 +697,7 @@ function canUsePlainTextFastPath(markdown: string): boolean {
   }
 
   return !/[`*_~[\]!<>{}|=]/.test(markdown)
-    && !/^ {0,3}(?:Target:|>\s?|[-+]\s+|\d+[.)]\s+)/im.test(markdown)
+    && !/^ {0,3}(?:Target(?:[ \t]*:|[ \t]+)|>\s?|[-+]\s+|\d+[.)]\s+)/im.test(markdown)
     && !/^ {0,3}-{3,}[ \t]*$/m.test(markdown);
 }
 
@@ -946,7 +948,7 @@ function formatWritingTargetProgressLabel(
 }
 
 function parseCountWritingTarget(value: string): WritingTarget | null {
-  const match = /^([0-9][0-9,]*)\s*(words?|chars?|characters?)$/i.exec(value);
+  const match = /^([0-9][0-9,]*)[ \t]*(w|words?|chars?|characters?)$/i.exec(value);
   if (!match) {
     return null;
   }
@@ -957,14 +959,14 @@ function parseCountWritingTarget(value: string): WritingTarget | null {
   }
 
   return {
-    metric: /^words?$/i.test(match[2]) ? "words" : "characters",
+    metric: /^(?:w|words?)$/i.test(match[2]) ? "words" : "characters",
     targetValue
   };
 }
 
 function parseReadingTimeWritingTarget(value: string): WritingTarget | null {
-  const normalized = value.toLowerCase().replace(/,/g, "").trim();
-  const match = /^(\d+)\s*(?:m|min|mins|minute|minutes)(?:\s+(\d+)\s*(?:s|sec|secs|second|seconds))?$/.exec(normalized);
+  const normalized = value.toLowerCase().trim();
+  const match = /^(\d+)[ \t]*(?:m|min|mins|minute|minutes)(?:[ \t]+(\d+)[ \t]*(?:s|sec|secs|second|seconds))?$/.exec(normalized);
   if (!match) {
     return null;
   }
@@ -973,7 +975,7 @@ function parseReadingTimeWritingTarget(value: string): WritingTarget | null {
   const seconds = match[2] ? Number(match[2]) : 0;
   const targetValue = (minutes * 60) + seconds;
 
-  return targetValue > 0
+  return seconds < 60 && Number.isSafeInteger(targetValue) && targetValue > 0
     ? {
       metric: "reading-time",
       targetValue
@@ -982,8 +984,11 @@ function parseReadingTimeWritingTarget(value: string): WritingTarget | null {
 }
 
 function parseTargetInteger(value: string): number {
+  // Commas must group thousands; silently stripping arbitrary commas would
+  // turn mistakes such as "1,00" or "1,,000" into valid but unintended goals.
+  if (!/^(?:\d+|[1-9]\d{0,2}(?:,\d{3})+)$/.test(value)) return 0;
   const parsed = Number(value.replace(/,/g, ""));
-  return Number.isInteger(parsed) ? parsed : 0;
+  return Number.isSafeInteger(parsed) ? parsed : 0;
 }
 
 function removeWritingTargetLines(markdown: string): string {

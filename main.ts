@@ -12,6 +12,7 @@ import {
   App,
   Editor,
   MarkdownView,
+  Menu,
   Modal,
   Notice,
   Plugin,
@@ -22,7 +23,8 @@ import {
 import type {
   SettingDefinition,
   SettingDefinitionGroup,
-  SettingDefinitionItem
+  SettingDefinitionItem,
+  MarkdownSectionInformation
 } from "obsidian";
 import {
   SectionMeterSettings,
@@ -52,6 +54,7 @@ import {
   selectionIntersectsHeading
 } from "./src/headingDecorations";
 import { TargetCompletionTracker, type TargetCompletion } from "./src/targetCompletion";
+import { containsReadingViewHeadings, ReadingViewStats } from "./src/readingView";
 
 declare const __SECTION_METER_BUILD_LABEL__: string;
 
@@ -108,6 +111,15 @@ export default class SectionMeterPlugin extends Plugin {
   private lastStatusBarRenderKey = "hidden";
   private titleBadgeUpdateTimers = new Map<MarkdownView, number>();
   private unloaded = false;
+  private readingViewChildren = new Set<ReadingViewStats>();
+  private readingViewChunks = new WeakMap<HTMLElement, ReadingViewStats>();
+  private readingViewContent = new WeakMap<MarkdownView, { markdown: string; settingsKey: string }>();
+  private readingViewRefreshFrame: number | null = null;
+  private readingViewCache = new Map<string, {
+    markdown: string;
+    settingsKey: string;
+    sections: Map<number, SectionMeterSummary>;
+  }>();
   private readingTimeCache = new WeakMap<EditorView, {
     doc: Text;
     settingsKey: string;
@@ -136,6 +148,47 @@ export default class SectionMeterPlugin extends Plugin {
     this.addSettingTab(new SectionMeterSettingTab(this.app, this));
     this.registerWritingTargetCommands();
     this.registerStatsDisplayCommands();
+    this.registerMarkdownPostProcessor((element, context) => {
+      if (this.unloaded) return;
+      if (containsReadingViewHeadings(element)) {
+        const existing = this.readingViewChunks.get(element);
+        if (existing && existing.context.docId === context.docId
+          && existing.context.sourcePath === context.sourcePath) {
+          existing.refresh();
+        } else {
+          existing?.unload();
+          context.addChild(new ReadingViewStats(
+            element, context, () => this.settings,
+            (docId, markdown) => this.getReadingViewSections(docId, markdown),
+            (summary, getSource) => createReadingTimeBadge(summary.label, summary.wordCount,
+              summary.characterCount, summary.seconds, summary.target,
+              "section-meter-reading-badge", true, "Heading section stats",
+              () => this.getReadingViewTargetActions(context.sourcePath, getSource)),
+            (child) => {
+              this.readingViewChildren.add(child);
+              this.readingViewChunks.set(child.containerEl, child);
+            },
+            (child) => {
+              this.readingViewChildren.delete(child);
+              if (this.readingViewChunks.get(child.containerEl) === child) {
+                this.readingViewChunks.delete(child.containerEl);
+              }
+              if (![...this.readingViewChildren].some((other) => other.context.docId === child.context.docId)) {
+                this.readingViewCache.delete(child.context.docId);
+              }
+            }
+          ));
+        }
+      }
+      // A prose-only chunk can change counts on already-rendered headings.
+      this.scheduleReadingViewRefresh();
+    });
+    this.registerEvent(this.app.vault.on("modify", (file) => {
+      const relevant = [...this.readingViewChildren].some((child) => child.context.sourcePath === file.path)
+        || this.app.workspace.getLeavesOfType("markdown").some((leaf) => leaf.view instanceof MarkdownView
+          && leaf.view.getMode() === "preview" && leaf.view.file?.path === file.path);
+      if (relevant) this.scheduleReadingViewRefresh();
+    }));
     this.registerEvent(
       this.app.workspace.on("layout-change", () => {
         this.refreshTitleBadges();
@@ -161,6 +214,12 @@ export default class SectionMeterPlugin extends Plugin {
       })
     );
     this.app.workspace.onLayoutReady(() => {
+      if (this.unloaded) return;
+      this.app.workspace.getLeavesOfType("markdown").forEach((leaf) => {
+        if (leaf.view instanceof MarkdownView && leaf.view.getMode() === "preview") {
+          leaf.view.previewMode.rerender(true);
+        }
+      });
       this.refreshTitleBadges();
       this.refreshStatusBarFromActiveView();
     });
@@ -170,6 +229,10 @@ export default class SectionMeterPlugin extends Plugin {
     this.unloaded = true;
     for (const timer of this.titleBadgeUpdateTimers.values()) window.clearTimeout(timer);
     this.titleBadgeUpdateTimers.clear();
+    if (this.readingViewRefreshFrame !== null) window.cancelAnimationFrame(this.readingViewRefreshFrame);
+    this.readingViewRefreshFrame = null;
+    for (const child of [...this.readingViewChildren]) child.unload();
+    this.readingViewCache.clear();
     this.app.workspace.getLeavesOfType("markdown").forEach((leaf) => {
       if (leaf.view instanceof MarkdownView) removeTitleBadge(leaf.view.containerEl);
     });
@@ -186,6 +249,7 @@ export default class SectionMeterPlugin extends Plugin {
     await this.saveData(this.settings);
     if (this.unloaded || !refreshStats) return;
     this.refreshEditorExtensions();
+    this.refreshReadingViewStats();
     this.refreshTitleBadges();
     this.refreshStatusBarFromActiveView();
   }
@@ -224,11 +288,43 @@ export default class SectionMeterPlugin extends Plugin {
 
   private openMobileTargetEditor(editorView: EditorView, scope: WritingTargetScope, position: number): void {
     const view = this.getMarkdownViewForEditor(editorView);
-    if (!view || !this.isActiveEditor(editorView)) {
+    if (!view) {
       return;
     }
 
     this.openWritingTargetModal(view.editor, scope, position);
+  }
+
+  private getReadingViewTargetActions(
+    sourcePath: string,
+    getSource: () => MarkdownSectionInformation | null
+  ): BadgeTargetActions | null {
+    const source = getSource();
+    const file = this.app.vault.getFileByPath(sourcePath);
+    const summary = source && summarizeSectionReadingTimes(source.text, this.settings)
+      .find((section) => section.line === source.lineStart);
+    if (this.unloaded || !source || !file || !summary?.target) return null;
+
+    const apply = async (target: WritingTarget | null): Promise<void> => {
+      if (this.unloaded) return;
+      try {
+        await this.app.vault.process(file, (markdown) => {
+          if (markdown !== source.text || file.path !== sourcePath) {
+            new Notice("The note changed. Please tap the updated target again.");
+            return markdown;
+          }
+          const edit = createWritingTargetTextEdit(markdown, "section", summary.from, target);
+          return edit ? markdown.slice(0, edit.from) + edit.text + markdown.slice(edit.to) : markdown;
+        });
+      } catch {
+        new Notice("The target could not be updated. Please try again.");
+      }
+    };
+    return {
+      edit: () => new WritingTargetModal(this.app, "section", summary.target,
+        getWritingTargetPresets(this.settings.targetPresets), (target) => { void apply(target); }).open(),
+      remove: () => apply(null)
+    };
   }
 
   private registerWritingTargetCommands() {
@@ -441,6 +537,47 @@ export default class SectionMeterPlugin extends Plugin {
     });
   }
 
+  private getReadingViewSections(docId: string, markdown: string): Map<number, SectionMeterSummary> {
+    const settingsKey = getReadingTimeSettingsKey(this.settings);
+    const cached = this.readingViewCache.get(docId);
+    if (cached?.markdown === markdown && cached.settingsKey === settingsKey) return cached.sections;
+    const sections = new Map(summarizeSectionReadingTimes(markdown, this.settings)
+      .map((summary) => [summary.line, summary]));
+    this.readingViewCache.set(docId, { markdown, settingsKey, sections });
+    return sections;
+  }
+
+  private refreshReadingViewStats(): void {
+    if (this.unloaded) return;
+    for (const child of this.readingViewChildren) child.refresh();
+  }
+
+  private scheduleReadingViewRefresh(): void {
+    if (this.unloaded || this.readingViewRefreshFrame !== null) return;
+    this.readingViewRefreshFrame = window.requestAnimationFrame(() => {
+      this.readingViewRefreshFrame = null;
+      if (this.unloaded) return;
+      this.refreshReadingViewStats();
+      const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+      const settingsKey = getReadingTimeSettingsKey(this.settings);
+      this.app.workspace.getLeavesOfType("markdown").forEach((leaf) => {
+        if (leaf.view instanceof MarkdownView && leaf.view.getMode() === "preview") {
+          const markdown = leaf.view.getViewData();
+          const cached = this.readingViewContent.get(leaf.view);
+          const titleMissing = this.settings.enabled && this.settings.showInlineTitleStats
+            && !!leaf.view.containerEl.querySelector(".inline-title")
+            && !leaf.view.containerEl.querySelector(".section-meter-title-badge");
+          // Virtualized chunks are rendered while scrolling. Do not recount the
+          // whole note or replace its title badge when only the viewport changed.
+          if (cached?.markdown === markdown && cached.settingsKey === settingsKey && !titleMissing) return;
+          this.readingViewContent.set(leaf.view, { markdown, settingsKey });
+          this.refreshTitleBadge(leaf.view);
+          if (leaf.view === activeView) this.refreshStatusBarFromActiveView();
+        }
+      });
+    });
+  }
+
   private refreshStatusBarFromActiveView() {
     if (this.unloaded || !this.settings.enabled) {
       this.clearStatusBar();
@@ -454,7 +591,7 @@ export default class SectionMeterPlugin extends Plugin {
     }
 
     const editorView = getEditorView(activeView);
-    if (editorView) {
+    if (editorView && activeView.getMode() !== "preview") {
       const summaries = this.getCachedReadingTimes(editorView)
         ?? summarizeReadingTimes(editorView.state.doc.toString(), this.settings);
       this.updateStatusBar(getStatusBarStats(
@@ -517,7 +654,7 @@ export default class SectionMeterPlugin extends Plugin {
     }
 
     const editorView = getEditorView(markdownView);
-    const summary = (editorView ? this.getCachedReadingTimes(editorView)?.note : null)
+    const summary = (editorView && markdownView.getMode() !== "preview" ? this.getCachedReadingTimes(editorView)?.note : null)
       ?? summarizeNoteReadingTime(markdownView.getViewData(), this.settings);
     const badge = createReadingTimeBadge(
       summary.label,
@@ -1086,6 +1223,16 @@ export function createSectionMeterExtension(
         const seconds = isSelectionTarget ? selectionOverride.seconds : summary.seconds;
         const target = isSelectionTarget ? null : summary.target;
         const scopeLabel = isSelectionTarget ? "Selection stats" : "Heading section stats";
+        const badgeDoc = this.analyzedDoc;
+        const badgeIdentity = this.documentIdentity;
+        const withCurrentHeading = (action: () => void): void => {
+          if (!view.dom.isConnected || view.state.doc !== badgeDoc
+            || getDocumentIdentity(view) !== badgeIdentity) {
+            new Notice("The note changed. Please tap the updated target again.");
+            return;
+          }
+          action();
+        };
 
         builder.add(
           summary.headingEnd,
@@ -1097,7 +1244,16 @@ export function createSectionMeterExtension(
               characterCount,
               seconds,
               target,
-              scopeLabel
+              scopeLabel,
+              badgeDoc,
+              summary.from,
+              () => ({
+                edit: () => withCurrentHeading(() => openMobileTargetEditor(view, "section", summary.from)),
+                remove: () => withCurrentHeading(() => {
+                  const edit = createWritingTargetTextEdit(badgeDoc.toString(), "section", summary.from, null);
+                  if (edit) view.dispatch({ changes: { from: edit.from, to: edit.to, insert: edit.text } });
+                })
+              })
             ),
             side: 1
           })
@@ -1438,7 +1594,10 @@ class ReadingTimeWidget extends WidgetType {
     private readonly characterCount: number,
     private readonly seconds: number,
     private readonly target: WritingTargetProgress | null,
-    private readonly scopeLabel: string
+    private readonly scopeLabel: string,
+    private readonly doc: Text,
+    private readonly position: number,
+    private readonly getTargetActions: () => BadgeTargetActions | null
   ) {
     super();
   }
@@ -1449,7 +1608,9 @@ class ReadingTimeWidget extends WidgetType {
       && this.characterCount === other.characterCount
       && this.seconds === other.seconds
       && targetProgressesEqual(this.target, other.target)
-      && this.scopeLabel === other.scopeLabel;
+      && this.scopeLabel === other.scopeLabel
+      && this.doc === other.doc
+      && this.position === other.position;
   }
 
   updateDOM(dom: HTMLElement): boolean {
@@ -1473,7 +1634,8 @@ class ReadingTimeWidget extends WidgetType {
       this.target,
       "",
       true,
-      this.scopeLabel
+      this.scopeLabel,
+      this.getTargetActions
     );
   }
 
@@ -1535,7 +1697,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
       items: [
         this.createToggleSetting(
           "Show heading stats",
-          "Show section stats beside Markdown headings.",
+          "Show section stats beside Markdown headings in the editor and Reading view.",
           () => this.plugin.settings.showHeadingStats,
           async (value) => {
             this.plugin.settings.showHeadingStats = value;
@@ -1544,7 +1706,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
         ),
         this.createToggleSetting(
           "Show inline title stats",
-          "Show whole-note stats beside the inline note title.",
+          "Show whole-note stats below the inline note title in the editor and Reading view.",
           () => this.plugin.settings.showInlineTitleStats,
           async (value) => {
             this.plugin.settings.showInlineTitleStats = value;
@@ -1807,7 +1969,7 @@ class SectionMeterSettingTab extends PluginSettingTab {
       items: [
         this.createGuidanceSetting(
           "Supported target formats",
-          "Examples: Target: 250 words, Target: 1800 characters, Target: 3m, Target: 2m 30s."
+          "Examples: Target: 250 words, target 250w, Target: 1800 chars, Target: 2m 30s. Use a standalone line with an explicit unit."
         ),
         this.createDropdownSetting(
           "Progress label",
@@ -2539,6 +2701,11 @@ function removeTitleBadge(container: HTMLElement): void {
   });
 }
 
+interface BadgeTargetActions {
+  edit: () => unknown;
+  remove: () => unknown;
+}
+
 function createReadingTimeBadge(
   label: string,
   wordCount: number,
@@ -2546,8 +2713,9 @@ function createReadingTimeBadge(
   seconds: number,
   target: WritingTargetProgress | null,
   extraClass = "",
-  selectOnClick = false,
-  scopeLabel = "Reading stats"
+  interactiveStats = false,
+  scopeLabel = "Reading stats",
+  getTargetActions?: () => BadgeTargetActions | null
 ): HTMLElement {
   const badge = createSpan();
   badge.className = ["section-meter-badge", extraClass].filter(Boolean).join(" ");
@@ -2559,7 +2727,16 @@ function createReadingTimeBadge(
   if (target) {
     badge.classList.add("section-meter-target-badge");
     badge.classList.add(getTargetProgressStateClass(target));
-    badge.appendChild(createBadgeTargetGroupEl(target));
+    const targetGroup = createBadgeTargetGroupEl(target);
+    if (getTargetActions) {
+      addBadgeMenuHandlers(targetGroup, "Target actions", () => {
+        const actions = getTargetActions();
+        return actions ? new Menu()
+          .addItem((item) => item.setTitle("Edit target").setIcon("pencil").onClick(actions.edit))
+          .addItem((item) => item.setTitle("Remove target").setIcon("trash").setWarning(true).onClick(actions.remove)) : null;
+      });
+    }
+    badge.appendChild(targetGroup);
   }
 
   badge.setAttribute(
@@ -2576,11 +2753,16 @@ function createReadingTimeBadge(
   badge.addEventListener("mousedown", stopEditorMouseHandling);
   badge.addEventListener("pointerdown", stopEditorMouseHandling);
 
-  if (selectOnClick) {
-    badge.addEventListener("click", (event) => {
-      event.stopPropagation();
-      selectBadgeText(badge);
-    });
+  if (interactiveStats) {
+    addBadgeMenuHandlers(labelEl, "Statistics actions", () => new Menu()
+      .addItem((item) => item.setTitle("Copy statistics").setIcon("copy").onClick(async () => {
+        try {
+          await labelEl.ownerDocument.defaultView?.navigator.clipboard.writeText(label);
+          new Notice("Statistics copied.");
+        } catch {
+          new Notice("Statistics could not be copied.");
+        }
+      })));
   }
 
   return badge;
@@ -2698,16 +2880,25 @@ function stopEditorMouseHandling(event: Event) {
   event.stopPropagation();
 }
 
-function selectBadgeText(badge: HTMLElement) {
-  const selection = activeWindow.getSelection();
-  if (!selection) {
-    return;
-  }
-
-  const range = activeDocument.createRange();
-  range.selectNodeContents(badge);
-  selection.removeAllRanges();
-  selection.addRange(range);
+function addBadgeMenuHandlers(element: HTMLElement, label: string, createMenu: () => Menu | null): void {
+  element.classList.add("section-meter-badge-action");
+  element.setAttribute("role", "button");
+  element.setAttribute("tabindex", "0");
+  element.setAttribute("aria-label", label);
+  element.setAttribute("aria-haspopup", "menu");
+  element.setAttribute("title", label);
+  const show = (event: Event): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    const bounds = element.getBoundingClientRect();
+    createMenu()?.showAtPosition({ x: bounds.left, y: bounds.bottom }, element.ownerDocument);
+  };
+  element.addEventListener("click", show);
+  element.addEventListener("contextmenu", show);
+  element.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " " || event.key === "ContextMenu"
+      || (event.shiftKey && event.key === "F10")) show(event);
+  });
 }
 
 function preventBadgeTextEdit(event: KeyboardEvent) {
@@ -2718,8 +2909,7 @@ function preventBadgeTextEdit(event: KeyboardEvent) {
   const editingKeys = new Set([
     "Backspace",
     "Delete",
-    "Enter",
-    "Tab"
+    "Enter"
   ]);
 
   if (event.key.length === 1 || editingKeys.has(event.key)) {

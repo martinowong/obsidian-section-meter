@@ -56,6 +56,11 @@ describe("manual test-vault fixture", () => {
     expect(summaries.note.target?.targetValue).toBe(100);
     expect(summaries.sections[0].target).toBeNull();
     expect(summaries.sections.find((section) => section.title === "Parent section target")?.target?.targetValue).toBe(50);
+    expect(summaries.sections.find((section) => section.title === "Short target syntax"))
+      .toMatchObject({ wordCount: 3, target: { metric: "words", targetValue: 20 } });
+    expect(summaries.sections.find((section) => section.title === "Character target shorthand"))
+      .toMatchObject({ characterCount: 11, target: { metric: "characters", targetValue: 30 } });
+    expect(summaries.sections.find((section) => section.title === "Target-like prose")?.target).toBeNull();
   });
 });
 
@@ -260,6 +265,14 @@ describe("countReadableWords", () => {
 
     expect(countReadableWords(markdown)).toBe(5);
     expect(countReadableCharacters(markdown)).toBe(31);
+  });
+
+  it("excludes the new standalone forms on the plain-text path but preserves target-like prose", () => {
+    const markdown = "target 10w\ntarget 20 chars\none two\nTarget: 5 words today";
+    expect(countReadableWords(markdown)).toBe(6);
+    expect(countReadableCharacters(markdown)).toBe(29);
+    expect(countReadableWords("Target: 500")).toBe(2);
+    expect(countReadableWords("Target: 1,00 words")).toBe(4);
   });
 });
 
@@ -469,6 +482,23 @@ describe("summarizeNoteReadingTime", () => {
 });
 
 describe("parseWritingTargetLine", () => {
+  it("does not treat Goal declarations as targets or exclude them from prose counts", () => {
+    for (const line of ["Goal: 500 words", "goal 500w", "GOAL: 30 chars", "Goal: 2m 30s"]) {
+      expect(parseWritingTargetLine(line), line).toBeNull();
+    }
+    const markdown = "Goal: 500 words\nhello";
+    expect(countReadableWords(markdown)).toBe(4);
+    expect(summarizeNoteReadingTime(markdown, settings).target).toBeNull();
+  });
+
+  it("accepts explicit target lines with optional colons and word shorthand", () => {
+    for (const line of ["target 500w", "Target: 500w", "Target: 500 words", "TARGET 500 words", "  Target : 500 words  "]) {
+      expect(parseWritingTargetLine(line), line).toEqual({ metric: "words", targetValue: 500 });
+    }
+    expect(parseWritingTargetLine("Target 1,000 chars")).toEqual({ metric: "characters", targetValue: 1000 });
+    expect(parseWritingTargetLine("target 2m 30s")).toEqual({ metric: "reading-time", targetValue: 150 });
+  });
+
   it("parses word and character targets", () => {
     expect(parseWritingTargetLine("Target: 250 words")).toEqual({
       metric: "words",
@@ -504,9 +534,45 @@ describe("parseWritingTargetLine", () => {
     expect(parseWritingTargetLine("- Target: 250 words")).toBeNull();
     expect(parseWritingTargetLine("Paragraph target: 250 words")).toBeNull();
   });
+
+  it("requires standalone declarations, explicit units and valid numeric values", () => {
+    const invalid = [
+      "Target 500", "Target: 500", "Target500w", "Target=500w",
+      "Targeting 500 words", "My target 500w", "Target: 500 words today",
+      "- Target: 500 words", "> target 500w", "    Target: 500w", "\tTarget: 500 words",
+      "Target: +300 words", "Target: -300 words", "Target: 0 words", "Target: 0 chars",
+      "Target: 2.5 words", "Target: 1,00 words", "Target: 1,,000 chars", "Target: 1000, words",
+      "Target: 9007199254740992 words", "Target: 999999999999999999999 minutes",
+      "Target: 1,0m", "Target: 1m 60s", "Target: 0m 0s", "Target: 500w\n",
+      "Target:\n500 words"
+    ];
+    for (const line of invalid) expect(parseWritingTargetLine(line), line).toBeNull();
+    expect(parseWritingTargetLine("Target: 12,345,678 words")?.targetValue).toBe(12345678);
+    expect(parseWritingTargetLine("Target: 0m 30s")).toEqual({ metric: "reading-time", targetValue: 30 });
+  });
 });
 
 describe("writing target progress", () => {
+  it("uses alternate declarations for note and section targets with unchanged ownership", () => {
+    const markdown = "target 100w\n# Draft\ntarget 10w\none two\n## Child\nTarget: 20 chars\nabc";
+    const summaries = summarizeReadingTimes(markdown, settings);
+    expect(summaries.note).toMatchObject({ wordCount: 5, characterCount: 23,
+      target: { metric: "words", targetValue: 100, currentValue: 5 } });
+    expect(summaries.sections[0]).toMatchObject({ wordCount: 4,
+      target: { metric: "words", targetValue: 10, currentValue: 4 } });
+    expect(summaries.sections[1]).toMatchObject({ wordCount: 1,
+      target: { metric: "characters", targetValue: 20, currentValue: 3 } });
+  });
+
+  it("does not interpret alternate declarations inside frontmatter, code, comments, lists or quotes", () => {
+    const markdown = ["---", "target 100w", "---", "# Draft", "```text", "target 20w", "```",
+      "%%", "Target: 30 chars", "%%", "<!-- target 40w -->", "- target 50w", "> Target: 60 words", "hello"].join("\n");
+    const summaries = summarizeReadingTimes(markdown, settings);
+    expect(summaries.note.target).toBeNull();
+    expect(summaries.sections[0].target).toBeNull();
+    expect(summaries.sections[0].wordCount).toBe(6);
+  });
+
   it("applies a target before the first heading to the whole note", () => {
     const summary = summarizeNoteReadingTime(
       "Target: 4 words\n# Title\nReadable note words",
@@ -816,6 +882,24 @@ describe("writing target text edits", () => {
 
     expect(applyTextEdit(markdown, edit)).toBe(
       "Target: 3000 characters\n\n# Draft\nText"
+    );
+  });
+
+  it("edits and removes alternate declarations without adding duplicate targets", () => {
+    const markdown = "target 100w\n# Draft\ntarget 10w\none two\n## Child\nTarget: 20 chars\nabc";
+    const noteEdit = createWritingTargetTextEdit(markdown, "note", 0,
+      { metric: "words", targetValue: 200 });
+    expect(applyTextEdit(markdown, noteEdit)).toBe(
+      "Target: 200 words\n# Draft\ntarget 10w\none two\n## Child\nTarget: 20 chars\nabc"
+    );
+    const sectionEdit = createWritingTargetTextEdit(markdown, "section", markdown.indexOf("one two"),
+      { metric: "words", targetValue: 15 });
+    expect(applyTextEdit(markdown, sectionEdit)).toBe(
+      "target 100w\n# Draft\nTarget: 15 words\none two\n## Child\nTarget: 20 chars\nabc"
+    );
+    const removal = createWritingTargetTextEdit(markdown, "section", markdown.indexOf("abc"), null);
+    expect(applyTextEdit(markdown, removal)).toBe(
+      "target 100w\n# Draft\ntarget 10w\none two\n## Child\nabc"
     );
   });
 

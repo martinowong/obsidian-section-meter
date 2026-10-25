@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.5.0
+
+- **Stats in Reading view:** heading and whole-note badges now appear in Reading view as well as the editor, using the same display and counting settings. Tap a badge's statistics to copy them, or its target to edit or remove it, in either view.
+- **Target lines as chips:** in Live Preview, lines like `Target: 250 words` now show as a small chip. Click it, or move the cursor onto the line, to edit the text as before. Your Markdown never changes, and you can turn chips off in settings.
+- **Calmer progress colours:** progress bars use your theme's accent colour while you write, turn green with a ✓ when you reach a target, and orange when you go past your warning threshold. Prefer the original yellow, green, and red? Choose **Classic** under **Progress colours**.
+- **"Over" labels:** in Remaining mode, a target you've passed now shows how far past it you are, such as "90 words over", instead of just "Reached".
+- **Easier target entry:** type a unit straight into the target dialog, such as `250w`, `1800 chars`, `3m`, or `45s`, and the measure switches to match. Seconds-only targets like `Target: 45s` now work in notes too.
+- **Reorganised settings:** settings are now grouped into Badges, Status bar, Writing targets, Label format, and Counting. Choose what badges and the status bar show with simple Words, Reading time, and Characters buttons. The live preview can be pinned while you scroll and now includes a section with a target.
+- **Refreshed design:** softer, rounder badges with neatly aligned numbers, a target icon in place of the "Target" label, smooth progress bar movement (turned off if you prefer reduced motion), and rounder quick-target buttons.
+- **Bugfix:** Pressing Enter in the target dialog no longer replaces what you typed with the first quick target.
+- **Bugfix:** Changing settings no longer makes the settings page jump when the preview changes size.
+- **Bugfix:** Remaining labels now say "1 word left" instead of "1 words left".
+- **Note:** "Minimum word count" and "Hide empty sections" are now a single setting, **Hide sections shorter than**. If you had "Hide empty sections" on, it's set to 1 word, which works the same way.
+
 ## 1.4.5
 
 - **Bugfix:** Note-title stats no longer overlap the first line or interfere with title editing.

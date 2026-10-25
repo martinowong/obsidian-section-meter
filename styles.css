@@ -149,9 +149,7 @@ body.section-meter-classic-target-colors {
 
 /* A non-colour cue, so a reached target is clear in every colour scheme. */
 .section-meter-target-label.section-meter-target-complete::before,
-.section-meter-mobile-current-section:has(
-  .section-meter-mobile-current-section-progress.section-meter-target-complete
-) .section-meter-mobile-current-section-label::before {
+.section-meter-mobile-current-section-label.section-meter-target-complete::before {
   content: "✓\00a0";
 }
 

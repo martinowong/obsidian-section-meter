@@ -679,6 +679,18 @@ describe("editor badge integration", () => {
     expect(open).toHaveBeenCalledWith(editor, "section", 0);
   });
 
+  it("marks the mobile meter label as reached without relying on :has()", async () => {
+    const reached = createEditor("# Done\nTarget: 2 words\none two", true);
+    const inProgress = createEditor("# Draft\nTarget: 10 words\none two", true);
+    await new Promise((resolve) => window.setTimeout(resolve, 40));
+    const labelState = (editor: EditorView) => editor.dom
+      .querySelector(".section-meter-mobile-current-section-label")!
+      .classList.contains("section-meter-target-complete");
+    expect(labelState(reached)).toBe(true);
+    expect(labelState(inProgress)).toBe(false);
+    expect(readFileSync("styles.css", "utf8")).not.toMatch(/:has\(/);
+  });
+
   it("opens the target on the first tap even when pressing the meter changes editor focus", async () => {
     const open = vi.fn();
     const editor = createEditor("# Parent\nTarget: 10 words\nhello", true, { editTarget: open });

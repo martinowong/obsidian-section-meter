@@ -1591,11 +1591,12 @@ function renderMobileSectionMeter(
   const currentEl = meterEl.querySelector<HTMLElement>(".section-meter-mobile-current-section-current")!;
   currentEl.textContent = formatMobileTargetCurrentValue(target);
 
+  const stateClass = getTargetProgressStateClass(target);
   const progressEl = meterEl.querySelector<HTMLElement>(".section-meter-mobile-current-section-progress")!;
-  progressEl.className = [
-    "section-meter-mobile-current-section-progress",
-    getTargetProgressStateClass(target)
-  ].join(" ");
+  progressEl.className = ["section-meter-mobile-current-section-progress", stateClass].join(" ");
+  // The label carries the reached state itself so the ✓ needs no :has() selector.
+  meterEl.querySelector(".section-meter-mobile-current-section-label")
+    ?.classList.toggle("section-meter-target-complete", stateClass === "section-meter-target-complete");
   const progressFillEl = meterEl.querySelector<HTMLElement>(".section-meter-mobile-current-section-progress-fill")!;
   progressFillEl.style.width = `${Math.min(100, Math.max(0, target.percent))}%`;
 
